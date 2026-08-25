@@ -10,11 +10,13 @@ import type { ReadOperationsValidation } from "../openapi/validate.js";
 import type { LogoutResult } from "../auth/logout.js";
 import { addAuthCommands } from "./commands/auth.js";
 import { addOpenApiCommands } from "./commands/openapi.js";
+import { addQuickstartCommand } from "./commands/quickstart.js";
 import { addReadCommands } from "./commands/read.js";
 
 const DOCS_URL = "https://docs.themochi.app/";
 const HELP_DATA = {
   commands: [
+    "quickstart",
     "auth login",
     "auth status",
     "auth logout",
@@ -73,6 +75,7 @@ export function createProgram(dependencies: CliRuntimeDependencies, execution: P
 
   addAuthCommands(program, dependencies, execution);
   addOpenApiCommands(program, dependencies, execution);
+  addQuickstartCommand(program, dependencies, execution);
   addReadCommands(program, dependencies, execution);
   return program;
 }

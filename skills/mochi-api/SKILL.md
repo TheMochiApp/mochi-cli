@@ -25,6 +25,7 @@ If the current docs or OpenAPI cannot be reached, or if they disagree, stop and 
 
 ## Choose the execution boundary
 
+- For a first interactive local read, use the guided path in the authentication reference after verifying current docs and installed CLI help.
 - Use the CLI only for supported authentication and read operations.
 - For direct API integration or any mutation, read [integration safety](references/integration-safety.md), produce the bounded plan it requires, and obtain explicit approval before execution.
 - Keep an existing MCP connection intact. Do not export, exchange, or convert its credential.

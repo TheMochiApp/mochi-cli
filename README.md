@@ -33,6 +33,18 @@ npx --yes @themochiapp/cli --help
 
 The package name is `@themochiapp/cli`; the executable is `mochi`.
 
+## Guided first read
+
+After installing the skill and CLI, use one command for the interactive local setup check:
+
+```bash
+mochi quickstart
+```
+
+`quickstart` validates the current published OpenAPI contract before touching authentication, checks non-secret login status, opens the minimum-scope browser OAuth flow only when needed, verifies the stored grant, and completes one read-only canary. It discards the customer response body and returns only a structured verification summary with the live documentation index, contract versions, granted read scopes, storage backend, and canary result.
+
+Use the returned `docsIndexUrl` to select the smallest current task guide before continuing with a real task. If the OpenAPI contract is unavailable or incompatible, `quickstart` stops before login. Existing OAuth origin binding, PKCE, credential storage, refresh, and JSON error protections remain unchanged.
+
 ## Authenticate without copying a token
 
 ```bash
