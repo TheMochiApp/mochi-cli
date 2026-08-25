@@ -4,6 +4,18 @@
 
 > Rollout status: this repository is Phase D of the Public API agent-access rollout. Installing it does not enable production access. Customer OAuth must remain off until the Phase C backend/frontend are merged and Phase F adds a real backend organization-cohort gate; the exact production prerequisites are below.
 
+## Install the Mochi API skill
+
+Install the portable, high-level skill directly from this repository:
+
+```bash
+npx skills add TheMochiApp/mochi-cli --skill mochi-api
+```
+
+The skill helps an agent choose between interactive OAuth, an unattended API key, an existing MCP connection, and a registered OAuth application. It then reads [the live LLM index](https://docs.themochi.app/llms.txt), selects the smallest current task guide, and inspects the generated OpenAPI contract for exact request details.
+
+The skill does not copy the endpoint catalog and does not contain credentials. Routine API changes reach agents through Git-backed docs and OpenAPI without requiring a skill release. The skill is repository content and remains outside the `@themochiapp/cli` npm tarball.
+
 ## Requirements and installation
 
 Use Node.js 20 or newer.
@@ -172,4 +184,4 @@ Phase D does not add write scopes or write commands and does not change MCP, Zap
 - `429`/exit 6: honor `error.details.retryAfter` before retrying.
 - Logout cannot reach Mochi: retry `mochi auth logout`; use `--local-only` only when you intentionally accept that server-side revocation was not confirmed.
 
-Public API documentation is available in [GitBook](https://mochi-9.gitbook.io/mochi-api/). Report vulnerabilities through the private route in [SECURITY.md](SECURITY.md). Maintainers must complete [RELEASING.md](RELEASING.md) before any npm publication.
+Public API documentation is available at [docs.themochi.app](https://docs.themochi.app). See [skill maintenance](docs/skill-maintenance.md) before changing agent guidance. Report vulnerabilities through the private route in [SECURITY.md](SECURITY.md). Maintainers must complete [RELEASING.md](RELEASING.md) before any npm publication.

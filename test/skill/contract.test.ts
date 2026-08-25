@@ -63,4 +63,22 @@ describe("mochi-api skill structure", () => {
       expect(content).not.toMatch(/\]\((?:\.\.\/)?references\//);
     }
   });
+
+  test("documents installation and the stable maintenance boundary", async () => {
+    const readme = await readFile(resolve(repositoryRoot, "README.md"), "utf8");
+    const maintenance = await readFile(resolve(repositoryRoot, "docs/skill-maintenance.md"), "utf8");
+    const evaluation = await readFile(
+      resolve(repositoryRoot, "docs/evaluations/2026-08-25-mochi-api-skill.md"),
+      "utf8",
+    );
+
+    expect(readme).toContain("npx skills add TheMochiApp/mochi-cli --skill mochi-api");
+    expect(readme).toContain("https://docs.themochi.app/llms.txt");
+    expect(maintenance).toContain("Routine API changes do not require a skill release");
+    expect(maintenance).toContain("authentication-mode decision matrix");
+    expect(maintenance).toContain("canonical documentation discovery entry point");
+    expect(maintenance).toContain("CLI credential or read/write boundary");
+    expect(maintenance).toContain("cross-cutting security invariant");
+    expect(evaluation.match(/Result: PASS/g)).toHaveLength(3);
+  });
 });
