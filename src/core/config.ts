@@ -1,5 +1,5 @@
 const DEFAULT_API_BASE_URL = "https://api.themochi.app";
-const DEFAULT_ISSUER_URL = "https://app.themochi.app";
+const DEFAULT_ISSUER_URL = "https://api.themochi.app";
 const DEFAULT_OPENAPI_URL = "https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json";
 
 export interface RuntimeConfig {
