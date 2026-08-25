@@ -1,3 +1,5 @@
+import { CliError, ExitCode } from "./errors.js";
+
 const DEFAULT_API_BASE_URL = "https://api.themochi.app";
 const DEFAULT_ISSUER_URL = "https://api.themochi.app";
 const DEFAULT_OPENAPI_URL = "https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json";
@@ -11,11 +13,27 @@ export interface RuntimeConfig {
 export type RuntimeEnvironment = Readonly<Record<string, string | undefined>>;
 
 export function loadRuntimeConfig(environment: RuntimeEnvironment = process.env): RuntimeConfig {
-  return {
+  const config = {
     apiBaseUrl: parseBaseUrl(environment.MOCHI_API_URL ?? DEFAULT_API_BASE_URL, "API base", true),
     issuerUrl: parseBaseUrl(environment.MOCHI_ISSUER_URL ?? DEFAULT_ISSUER_URL, "issuer base", false),
     openapiUrl: parseEndpointUrl(environment.MOCHI_OPENAPI_URL ?? DEFAULT_OPENAPI_URL, "OpenAPI URL"),
   };
+  assertOriginBoundRuntimeConfig(config);
+  return config;
+}
+
+export function assertOriginBoundRuntimeConfig(config: Pick<RuntimeConfig, "apiBaseUrl" | "issuerUrl">): void {
+  let apiOrigin: string;
+  let issuerOrigin: string;
+  try {
+    apiOrigin = new URL(config.apiBaseUrl).origin;
+    issuerOrigin = new URL(config.issuerUrl).origin;
+  } catch {
+    throw invalidOriginPair();
+  }
+  if (apiOrigin !== issuerOrigin) {
+    throw invalidOriginPair();
+  }
 }
 
 function parseBaseUrl(value: string, label: string, rejectPath: boolean): string {
@@ -65,4 +83,8 @@ function isLoopbackHostname(hostname: string): boolean {
 
 function trimTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, "");
+}
+
+function invalidOriginPair(): CliError {
+  return new CliError("CONFIG_INVALID", "The Mochi API base and OAuth issuer must share one origin.", ExitCode.Local);
 }

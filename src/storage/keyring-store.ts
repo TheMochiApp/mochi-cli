@@ -1,9 +1,10 @@
+import { CliError, ExitCode } from "../core/errors.js";
 import type { SecretStore } from "./types.js";
 
 const KEYRING_SERVICE = "app.themochi.cli";
 const KEYRING_ACCOUNT = "default";
 
-interface NativeEntry {
+export interface NativeEntry {
   getPassword(): string | null;
   setPassword(password: string): void;
   deleteCredential(): boolean;
@@ -17,6 +18,10 @@ export async function loadNativeKeyringStore(): Promise<SecretStore> {
   const keyring = (await import("@napi-rs/keyring")) as NativeKeyringModule;
   const entry = new keyring.Entry(KEYRING_SERVICE, KEYRING_ACCOUNT);
 
+  return createNativeKeyringStore(entry);
+}
+
+export function createNativeKeyringStore(entry: NativeEntry): SecretStore {
   return {
     async get(): Promise<string | null> {
       return entry.getPassword();
@@ -25,7 +30,17 @@ export async function loadNativeKeyringStore(): Promise<SecretStore> {
       entry.setPassword(value);
     },
     async delete(): Promise<void> {
-      entry.deleteCredential();
+      try {
+        if (!entry.deleteCredential()) {
+          throw credentialStorageFailure();
+        }
+      } catch {
+        throw credentialStorageFailure();
+      }
     },
   };
+}
+
+function credentialStorageFailure(): CliError {
+  return new CliError("CREDENTIAL_STORAGE_FAILED", "Secure credential storage failed.", ExitCode.Local);
 }

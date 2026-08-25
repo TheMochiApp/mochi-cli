@@ -1,4 +1,4 @@
-import type { RuntimeConfig } from "../core/config.js";
+import { assertOriginBoundRuntimeConfig, type RuntimeConfig } from "../core/config.js";
 import { CliError, ExitCode } from "../core/errors.js";
 import { isReadScope, normalizeReadScopes, type ReadScope } from "../core/scopes.js";
 import { withCredentialLock as acquireCredentialLock } from "../storage/lock.js";
@@ -49,6 +49,7 @@ export interface LoginOptions {
 }
 
 export async function login(options: LoginOptions): Promise<LoginResult> {
+  assertOriginBoundRuntimeConfig(options.config);
   const scopes = normalizeReadScopes(options.readonlyScopes ?? []);
   const metadata = await (options.discoverOAuth ?? discoverMetadata)({
     issuerUrl: options.config.issuerUrl,

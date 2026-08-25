@@ -1,4 +1,4 @@
-import type { RuntimeConfig } from "../core/config.js";
+import { assertOriginBoundRuntimeConfig, type RuntimeConfig } from "../core/config.js";
 import { CliError, ExitCode } from "../core/errors.js";
 import { isReadScope } from "../core/scopes.js";
 import type { OAuthHttp, OAuthHttpResponse } from "../oauth/types.js";
@@ -38,6 +38,7 @@ export class AuthenticatedClient {
   readonly #withCredentialLock: CredentialLock;
 
   constructor(options: AuthenticatedClientOptions) {
+    assertOriginBoundRuntimeConfig(options.config);
     this.#config = options.config;
     this.#repository = options.repository;
     this.#http = options.http;

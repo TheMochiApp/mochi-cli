@@ -17,12 +17,35 @@ describe("runtime configuration", () => {
     expect(
       loadRuntimeConfig({
         MOCHI_API_URL: "http://127.0.0.1:8000///",
-        MOCHI_ISSUER_URL: "http://localhost:9000///",
+        MOCHI_ISSUER_URL: "http://127.0.0.1:8000///",
       }),
     ).toMatchObject({
       apiBaseUrl: "http://127.0.0.1:8000",
-      issuerUrl: "http://localhost:9000",
+      issuerUrl: "http://127.0.0.1:8000",
     });
+  });
+
+  test("rejects the production issuer paired with an attacker API origin", () => {
+    expect(() =>
+      loadRuntimeConfig({
+        MOCHI_API_URL: "https://attacker.example",
+        MOCHI_ISSUER_URL: "https://api.themochi.app",
+      }),
+    ).toThrowError(
+      expect.objectContaining({
+        code: "CONFIG_INVALID",
+        message: "The Mochi API base and OAuth issuer must share one origin.",
+      }),
+    );
+  });
+
+  test("requires both local endpoints to use one explicit origin", () => {
+    expect(() =>
+      loadRuntimeConfig({
+        MOCHI_API_URL: "http://127.0.0.1:8000",
+        MOCHI_ISSUER_URL: "http://127.0.0.1:9000",
+      }),
+    ).toThrowError(expect.objectContaining({ code: "CONFIG_INVALID" }));
   });
 
   test("rejects insecure non-loopback endpoint overrides", () => {

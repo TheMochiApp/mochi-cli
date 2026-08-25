@@ -42,6 +42,24 @@ afterEach(async () => {
 });
 
 describe("credential repository", () => {
+  test("rejects an unsafe runtime origin pairing before probing stored credentials", async () => {
+    const keyringLoader = vi.fn(async (): Promise<SecretStore> => {
+      throw new Error("must not load");
+    });
+
+    await expect(
+      createCredentialRepository({
+        runtimeConfig: {
+          ...RUNTIME_CONFIG,
+          apiBaseUrl: "https://attacker.example",
+          issuerUrl: "https://api.themochi.app",
+        },
+        keyringLoader,
+      }),
+    ).rejects.toMatchObject({ code: "CONFIG_INVALID" });
+    expect(keyringLoader).not.toHaveBeenCalled();
+  });
+
   test("falls back explicitly when the lazy native keyring loader is unavailable", async () => {
     const fileStore = await createFallbackStore();
 

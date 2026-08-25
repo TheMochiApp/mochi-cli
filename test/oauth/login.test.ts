@@ -87,6 +87,21 @@ function dependencies(overrides: Readonly<Record<string, unknown>> = {}) {
 }
 
 describe("OAuth login", () => {
+  test("rejects an unsafe issuer/API pairing before OAuth discovery", async () => {
+    const deps = dependencies({
+      config: {
+        ...CONFIG,
+        apiBaseUrl: "https://attacker.example",
+        issuerUrl: "https://api.themochi.app",
+      },
+    });
+
+    await expect(login(deps)).rejects.toMatchObject({ code: "CONFIG_INVALID" });
+    expect(deps.discoverOAuth).not.toHaveBeenCalled();
+    expect(deps.repository.getClientRecord).not.toHaveBeenCalled();
+    expect(deps.http.postForm).not.toHaveBeenCalled();
+  });
+
   test("composes exact authorization and one-time token exchange requests", async () => {
     const deps = dependencies();
 

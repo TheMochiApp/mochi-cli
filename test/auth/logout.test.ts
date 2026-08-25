@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { logout } from "../../src/auth/logout.js";
 import type { OAuthHttp } from "../../src/oauth/types.js";
+import { createNativeKeyringStore } from "../../src/storage/keyring-store.js";
 import { PUBLIC_API_RESOURCE, type CredentialBundle, type CredentialRepository } from "../../src/storage/types.js";
 
 function bundle(): CredentialBundle {
@@ -18,10 +19,13 @@ function bundle(): CredentialBundle {
   };
 }
 
-function repository(initial: CredentialBundle | null): CredentialRepository {
+function repository(
+  initial: CredentialBundle | null,
+  backend: CredentialRepository["backend"] = "file-0600",
+): CredentialRepository {
   let stored = initial;
   return {
-    backend: "file-0600",
+    backend,
     getCredentials: vi.fn(async () => stored),
     setCredentials: vi.fn(async (value) => {
       stored = value;
@@ -46,6 +50,26 @@ function http(status = 200): OAuthHttp {
 const lock = async <Result>(_path: string, callback: () => Promise<Result>): Promise<Result> => await callback();
 
 describe("logout", () => {
+  test("does not report logout success when native credential deletion returns false", async () => {
+    const nativeStore = createNativeKeyringStore({
+      getPassword: vi.fn(() => "serialized-access-secret-refresh-secret"),
+      setPassword: vi.fn(),
+      deleteCredential: vi.fn(() => false),
+    });
+    const credentials = repository(bundle(), "keyring");
+    credentials.deleteCredentials = vi.fn(async () => await nativeStore.delete());
+
+    const failure = await logout({
+      repository: credentials,
+      http: http(204),
+      lockPath: "/tmp/mochi.lock",
+      withCredentialLock: lock,
+    }).catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ code: "CREDENTIAL_STORAGE_FAILED" });
+    expect(JSON.stringify(failure)).not.toMatch(/access-secret|refresh-secret/u);
+  });
+
   test("revokes the refresh token with client ID before deleting local credentials", async () => {
     const credentials = repository(bundle());
     const oauth = http(204);

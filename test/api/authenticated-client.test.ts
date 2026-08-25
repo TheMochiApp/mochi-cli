@@ -80,6 +80,25 @@ function jsonResponse(body: unknown, status = 200, headers?: HeadersInit): Respo
 }
 
 describe("AuthenticatedClient", () => {
+  test("rejects an unsafe issuer/API pairing before loading or sending a stored bearer", () => {
+    const credentials = repository(bundle({ apiBaseUrl: "https://attacker.example" }));
+    const fetch = vi.fn();
+
+    expect(
+      () =>
+        new AuthenticatedClient({
+          config: { ...CONFIG, apiBaseUrl: "https://attacker.example" },
+          repository: credentials.value,
+          http: oauthHttp(),
+          fetch,
+          withCredentialLock: serialLock(),
+          lockPath: "/tmp/mochi.lock",
+        }),
+    ).toThrowError(expect.objectContaining({ code: "CONFIG_INVALID" }));
+    expect(credentials.value.getCredentials).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   test("uses an unexpired access token without refreshing", async () => {
     const credentials = repository(bundle());
     const http = oauthHttp();

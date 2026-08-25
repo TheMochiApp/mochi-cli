@@ -1,5 +1,5 @@
+import { assertOriginBoundRuntimeConfig, type RuntimeConfig } from "../core/config.js";
 import { CliError, ExitCode } from "../core/errors.js";
-import type { RuntimeConfig } from "../core/config.js";
 import { createFileStore } from "./file-store.js";
 import { loadNativeKeyringStore } from "./keyring-store.js";
 import { resolveStoragePaths } from "./paths.js";
@@ -23,6 +23,9 @@ export interface CredentialRepositoryOptions {
 export async function createCredentialRepository(
   options: CredentialRepositoryOptions = {},
 ): Promise<CredentialRepository> {
+  if (options.runtimeConfig) {
+    assertOriginBoundRuntimeConfig(options.runtimeConfig);
+  }
   const platform = options.platform ?? process.platform;
   const paths = resolveStoragePaths({ platform });
   const fileStore = options.fileStore ?? createFileStore(paths.credentialsPath, { platform });
