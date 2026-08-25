@@ -8,6 +8,8 @@ Use Mochi CLI OAuth when a customer and agent share a trusted local machine. Run
 
 The CLI stores the grant in the OS keychain or another documented secure local backend. The agent uses structured CLI results and never inspects credential storage. Use `mochi auth status` for non-secret state and `mochi auth logout` when the grant is no longer needed.
 
+For a first local read, use the repository README to install the current CLI, then inspect current CLI help. If it exposes `mochi quickstart`, run that guided path after reading the relevant current task guide. It validates published OpenAPI before requesting browser consent, requests only the minimum read grant when the stored grant is insufficient, re-verifies secure storage, and confirms one read without returning customer payload. If the installed version does not expose it, follow only the authentication and read commands shown by that version's help.
+
 ## Unattended workload
 
 Use an organization-scoped API key for CI, scheduled jobs, hosted agents, and servers. An operator creates the key with minimum scopes, stores it in a server-side secret manager, and injects it at runtime. Do not run browser login on an ephemeral worker or place the key in source, arguments, output, logs, screenshots, tickets, or prompts.

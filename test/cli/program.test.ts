@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import type { AuthStatus } from "../../src/auth/status.js";
+import { CliError, ExitCode } from "../../src/core/errors.js";
 import type { ResultJson } from "../../src/core/output.js";
 import { runCli, type CliRuntimeDependencies } from "../../src/cli/program.js";
 import type { LoginResult } from "../../src/oauth/login.js";
@@ -75,6 +76,7 @@ describe("CLI command composition", () => {
       ok: true,
       data: {
         commands: [
+          "quickstart",
           "auth login",
           "auth status",
           "auth logout",
@@ -160,6 +162,168 @@ describe("CLI command composition", () => {
       data: { openapiVersion: "3.0.3", apiVersion: "1.0.0", operationCount: 18 },
     });
     expect(dependencies.validateOpenApi).toHaveBeenCalledWith(expect.any(Object));
+  });
+
+  test("validates the current contract and completes one payload-free read with an existing login", async () => {
+    const dependencies = createDependencies({
+      apiGet: vi.fn(async () => ({
+        status: 200,
+        body: { email: "private-contact@example.test", access_token: "TOKEN_CANARY" },
+      })),
+    });
+
+    const invocation = await invoke(["quickstart"], dependencies);
+
+    expect(invocation).toEqual({
+      result: {
+        ok: true,
+        data: {
+          docsIndexUrl: "https://docs.themochi.app/llms.txt",
+          contract: { openapiVersion: "3.0.3", apiVersion: "1.0.0", operationCount: 18 },
+          authentication: {
+            loginPerformed: false,
+            scopes: [
+              "analytics:read",
+              "bookings:read",
+              "config:read",
+              "leads:read",
+              "revenue:read",
+              "signals:read",
+              "team:read",
+            ],
+            storageBackend: "keyring",
+          },
+          firstRead: { operation: "leads.list", verified: true },
+        },
+      },
+      exitCode: 0,
+      stderr: "",
+    });
+    expect(JSON.stringify(invocation)).not.toContain("private-contact@example.test");
+    expect(JSON.stringify(invocation)).not.toContain("TOKEN_CANARY");
+    expect(dependencies.login).not.toHaveBeenCalled();
+    expect(dependencies.apiGet).toHaveBeenCalledWith("/v1/leads/");
+    expect(vi.mocked(dependencies.fetchOpenApi).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(dependencies.status).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  test.each([
+    { authenticated: false, storageBackend: "keyring" } satisfies AuthStatus,
+    {
+      authenticated: true,
+      scopes: ["signals:read"],
+      resource: "https://api.themochi.app/v1/",
+      accessExpiresAt: "2030-01-01T00:00:00.000Z",
+      expired: false,
+      storageBackend: "keyring",
+    } satisfies AuthStatus,
+    {
+      authenticated: true,
+      scopes: ["leads:read"],
+      resource: "https://other.example.test/v1/",
+      accessExpiresAt: "2030-01-01T00:00:00.000Z",
+      expired: false,
+      storageBackend: "keyring",
+    } satisfies AuthStatus,
+  ])(
+    "uses minimum-scope browser login only when the current grant cannot make the first read",
+    async (initialStatus) => {
+      const verifiedStatus: AuthStatus = {
+        authenticated: true,
+        scopes: ["leads:read"],
+        resource: "https://api.themochi.app/v1/",
+        accessExpiresAt: "2030-01-01T00:00:00.000Z",
+        expired: false,
+        storageBackend: "keyring",
+      };
+      const dependencies = createDependencies({
+        status: vi.fn().mockResolvedValueOnce(initialStatus).mockResolvedValueOnce(verifiedStatus),
+      });
+
+      const invocation = await invoke(["quickstart"], dependencies);
+
+      expect(invocation.result).toMatchObject({
+        ok: true,
+        data: {
+          authentication: { loginPerformed: true, scopes: ["leads:read"], storageBackend: "keyring" },
+          firstRead: { operation: "leads.list", verified: true },
+        },
+      });
+      expect(dependencies.login).toHaveBeenCalledWith(["leads:read"], expect.any(Function));
+      expect(dependencies.status).toHaveBeenCalledTimes(2);
+      expect(dependencies.apiGet).toHaveBeenCalledWith("/v1/leads/");
+    },
+  );
+
+  test("fails closed when browser login does not produce a verifiable stored grant", async () => {
+    const unauthenticated: AuthStatus = { authenticated: false, storageBackend: "keyring" };
+    const dependencies = createDependencies({
+      status: vi.fn(async () => unauthenticated),
+    });
+
+    const invocation = await invoke(["quickstart"], dependencies);
+
+    expect(invocation).toEqual({
+      result: {
+        ok: false,
+        error: {
+          code: "ONBOARDING_AUTH_UNVERIFIED",
+          message: "Mochi could not verify the required read-only login.",
+        },
+      },
+      exitCode: 3,
+      stderr: "",
+    });
+    expect(dependencies.apiGet).not.toHaveBeenCalled();
+  });
+
+  test("does not start login when the published OpenAPI contract is incompatible", async () => {
+    const dependencies = createDependencies({
+      validateOpenApi: vi.fn(() => {
+        throw new CliError("OPENAPI_DRIFT", "The published OpenAPI contract is incompatible.", ExitCode.Local);
+      }),
+    });
+
+    const invocation = await invoke(["quickstart"], dependencies);
+
+    expect(invocation).toEqual({
+      result: {
+        ok: false,
+        error: { code: "OPENAPI_DRIFT", message: "The published OpenAPI contract is incompatible." },
+      },
+      exitCode: 7,
+      stderr: "",
+    });
+    expect(dependencies.status).not.toHaveBeenCalled();
+    expect(dependencies.login).not.toHaveBeenCalled();
+    expect(dependencies.apiGet).not.toHaveBeenCalled();
+  });
+
+  test("returns only safe HTTP metadata when the quickstart read fails", async () => {
+    const dependencies = createDependencies({
+      apiGet: vi.fn(async () => ({
+        status: 429,
+        retryAfter: "10",
+        body: { detail: "PRIVATE_API_ERROR_CANARY" },
+      })),
+    });
+
+    const invocation = await invoke(["quickstart"], dependencies);
+
+    expect(invocation).toEqual({
+      result: {
+        ok: false,
+        error: {
+          code: "API_RESPONSE",
+          message: "The Mochi API returned an unsuccessful response.",
+          details: { status: 429, retryAfter: "10" },
+        },
+      },
+      exitCode: 6,
+      stderr: "",
+    });
+    expect(JSON.stringify(invocation)).not.toContain("PRIVATE_API_ERROR_CANARY");
   });
 
   test.each([

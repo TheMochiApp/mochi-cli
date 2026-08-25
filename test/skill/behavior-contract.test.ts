@@ -37,6 +37,11 @@ describe("mochi-api behavioral guardrails", () => {
     expect(instructions).toContain("stop and report");
   });
 
+  test("routes a first interactive read through the guided CLI path", () => {
+    expect(instructions).toContain("mochi quickstart");
+    expect(instructions).toContain("current CLI help");
+  });
+
   test("keeps credentials outside agent context and preserves MCP", () => {
     expect(instructions).toContain("Never request, read, paste, print, log, or store a credential");
     expect(instructions).toContain("OS keychain");
