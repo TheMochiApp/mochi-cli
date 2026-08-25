@@ -1,12 +1,38 @@
 {
   "name": "@themochiapp/cli",
   "version": "0.1.0",
+  "description": "Read-only Mochi Public API CLI for humans, scripts, and AI agents.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheMochiApp/mochi-agent.git"
+  },
+  "homepage": "https://github.com/TheMochiApp/mochi-agent#readme",
+  "bugs": {
+    "url": "https://github.com/TheMochiApp/mochi-agent/issues"
+  },
+  "keywords": [
+    "mochi",
+    "crm",
+    "api",
+    "oauth",
+    "agent"
+  ],
   "type": "module",
   "bin": {
     "mochi": "dist/cli.js"
   },
   "engines": {
     "node": ">=20"
+  },
+  "files": [
+    "dist/**",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
     "commander": "^14.0.0"
@@ -31,6 +57,7 @@
     "test": "vitest run",
     "lint": "eslint .",
     "format:check": "prettier --check .",
+    "verify:package": "node scripts/verify-package.mjs",
     "ci": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run build"
   }
 }
