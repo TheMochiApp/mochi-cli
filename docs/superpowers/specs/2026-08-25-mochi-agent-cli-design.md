@@ -76,16 +76,21 @@ expiry, scopes, resource, client ID, token endpoint, revocation endpoint, and
 API base URL. It is stored under service `app.themochi.cli` and account
 `default` in the OS credential store.
 
-If the native module cannot load or the platform store is unavailable, the CLI
-uses `~/.config/mochi/credentials.json` (platform-appropriate config root), an
-atomic owner-only file with directory mode `0700` and file mode `0600`. Status
-reports the storage backend without revealing its path or values.
+On POSIX, if the native module cannot load or the platform store is unavailable,
+the CLI uses `~/.config/mochi/credentials.json` (platform-appropriate config
+root), an atomic owner-only file with directory mode `0700` and file mode
+`0600`. Node cannot prove Windows ACL ownership with POSIX mode bits, so Windows
+fails closed when Credential Manager is unavailable instead of storing plaintext
+tokens. Status reports the storage backend without revealing its path or values.
 
-Every refresh and credential mutation holds an owner-only cross-process lock.
-Inside the lock, the CLI reloads the bundle before deciding whether to refresh.
-It refreshes 60 seconds before expiry, atomically stores the rotated tokens,
-and never retries a non-idempotent credential mutation. An authenticated GET
-may retry once after a 401 only after refreshing under the same policy.
+Every refresh and credential mutation holds an owner-only cross-process
+directory lease. Acquisition uses an exclusive fixed lease directory with a
+nonce-bearing owner record; only preliminary stale candidates older than 60
+seconds are atomically moved to unique claim directories and revalidated before
+cleanup. Inside the lease, the CLI reloads the bundle before deciding whether to
+refresh. It refreshes 60 seconds before expiry, atomically stores the rotated
+tokens, and never retries a non-idempotent credential mutation. An authenticated
+GET may retry once after a 401 only after refreshing under the same policy.
 
 `auth logout` asks the server to revoke the refresh token before deleting the
 local bundle. If remote revocation cannot be confirmed, it keeps the local
@@ -98,13 +103,13 @@ Commands emit exactly one JSON value to stdout. Human progress such as the
 browser URL goes to stderr and never includes credentials. Success uses:
 
 ```json
-{"ok":true,"data":{}}
+{ "ok": true, "data": {} }
 ```
 
 Failure uses:
 
 ```json
-{"ok":false,"error":{"code":"AUTH_REQUIRED","message":"Run mochi auth login."}}
+{ "ok": false, "error": { "code": "AUTH_REQUIRED", "message": "Run mochi auth login." } }
 ```
 
 Stable exit codes are `0` success, `2` usage, `3` authentication, `4` OAuth,

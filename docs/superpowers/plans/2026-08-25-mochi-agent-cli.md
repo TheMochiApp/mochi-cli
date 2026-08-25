@@ -26,6 +26,7 @@
 ### Task 1: Package foundation and deterministic process contract
 
 **Files:**
+
 - Create: `package.json`
 - Create: `tsconfig.json`
 - Create: `tsup.config.ts`
@@ -39,6 +40,7 @@
 - Test: `test/core/config.test.ts`
 
 **Interfaces:**
+
 - Produces: `CliError`, `ExitCode`, `successJson`, `failureJson`, `writeResult`, `RuntimeConfig`, and `loadRuntimeConfig`.
 - Consumes: no application interfaces.
 
@@ -78,9 +80,7 @@ expect(failureJson(new CliError("AUTH_REQUIRED", "Run mochi auth login.", 3))).t
   error: { code: "AUTH_REQUIRED", message: "Run mochi auth login." },
 });
 expect(() => loadRuntimeConfig({ MOCHI_API_URL: "https://evil.example/v1" })).toThrow("API base");
-expect(loadRuntimeConfig({}).openapiUrl).toBe(
-  "https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json",
-);
+expect(loadRuntimeConfig({}).openapiUrl).toBe("https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json");
 ```
 
 - [ ] **Step 3: Run the tests and verify the missing-module failure**
@@ -135,6 +135,7 @@ Commit: `feat: establish CLI process contract`
 ### Task 2: Secure credential persistence and cross-process lock
 
 **Files:**
+
 - Create: `src/storage/types.ts`
 - Create: `src/storage/paths.ts`
 - Create: `src/storage/file-store.ts`
@@ -146,6 +147,7 @@ Commit: `feat: establish CLI process contract`
 - Test: `test/storage/lock.test.ts`
 
 **Interfaces:**
+
 - Produces: `CredentialBundle`, `PublicClientRecord`, `SecretStore`, `CredentialRepository`, `createCredentialRepository`, and `withCredentialLock`.
 - Consumes: `CliError` and `RuntimeConfig` from Task 1.
 
@@ -201,16 +203,21 @@ mode. Never reuse a broad environment variable for paths.
 
 The production loader dynamically imports `@napi-rs/keyring`, constructs
 `new Entry("app.themochi.cli", "default")`, and probes with `getPassword()`.
-Unavailable imports or platform errors choose the explicit file backend. A
-malformed stored value raises `CREDENTIAL_INVALID`; it must not silently erase
-or replace the bundle.
+Unavailable imports or platform errors choose the explicit file backend on
+POSIX. Windows fails closed with `CREDENTIAL_STORAGE_UNAVAILABLE` when the
+native keyring is unavailable because Node's POSIX mode bits cannot establish a
+secure Windows ACL. A malformed stored value raises `CREDENTIAL_INVALID`; it
+must not silently erase or replace the bundle.
 
 - [ ] **Step 5: Implement the lock**
 
-Use an exclusive `open(lockPath, "wx", 0o600)` loop with an injected 50 ms
-backoff, a 10-second acquisition deadline, and stale-lock removal only when the
-stored timestamp is older than 60 seconds. Always close/unlink in `finally` and
-verify the lock nonce before unlinking.
+Use an exclusive fixed directory lease containing an owner record created with
+`open(ownerPath, "wx", 0o600)`, an injected 50 ms backoff, and a 10-second
+acquisition deadline. Inspect live leases without mutation. Only preliminary
+stale candidates older than 60 seconds may be atomically moved to a unique claim
+directory; revalidate directory identity, owner identity/content, and staleness
+after the move before cleanup. Release claims by nonce and never overwrite or
+unlink a replacement lease.
 
 - [ ] **Step 6: Run tests and commit**
 
@@ -225,6 +232,7 @@ Commit: `feat: add secure credential storage`
 ### Task 3: OAuth discovery, DCR, PKCE, and loopback login
 
 **Files:**
+
 - Create: `src/oauth/types.ts`
 - Create: `src/oauth/http.ts`
 - Create: `src/oauth/pkce.ts`
@@ -240,6 +248,7 @@ Commit: `feat: add secure credential storage`
 - Test: `test/oauth/login.test.ts`
 
 **Interfaces:**
+
 - Produces: `OAuthMetadata`, `OAuthHttp`, `createPkce`, `discoverOAuth`, `ensurePublicClient`, `waitForOAuthCallback`, `openBrowser`, and `login`.
 - Consumes: `CredentialRepository`, `PublicClientRecord`, `CredentialBundle`, `RuntimeConfig`, `CliError`, and `withCredentialLock`.
 
@@ -331,6 +340,7 @@ Commit: `feat: add direct PKCE browser login`
 ### Task 4: Transparent refresh, authenticated GET, status, and logout
 
 **Files:**
+
 - Create: `src/api/types.ts`
 - Create: `src/api/authenticated-client.ts`
 - Create: `src/auth/status.ts`
@@ -340,6 +350,7 @@ Commit: `feat: add direct PKCE browser login`
 - Test: `test/auth/logout.test.ts`
 
 **Interfaces:**
+
 - Produces: `ApiResponse`, `AuthenticatedClient.get`, `authStatus`, and `logout`.
 - Consumes: `OAuthHttp`, `CredentialRepository`, `CredentialBundle`, `withCredentialLock`, `CliError`, and `RuntimeConfig`.
 
@@ -385,6 +396,7 @@ Commit: `feat: add authenticated read transport`
 ### Task 5: OpenAPI validation and bounded read-command registry
 
 **Files:**
+
 - Create: `src/openapi/types.ts`
 - Create: `src/openapi/fetch.ts`
 - Create: `src/openapi/validate.ts`
@@ -396,6 +408,7 @@ Commit: `feat: add authenticated read transport`
 - Test: `test/commands/query.test.ts`
 
 **Interfaces:**
+
 - Produces: `READ_OPERATIONS`, `parseQueryPairs`, `fetchOpenApi`, `writeOpenApi`, and `validateReadOperations`.
 - Consumes: `RuntimeConfig`, `AuthenticatedClient`, and `CliError`.
 
@@ -427,11 +440,7 @@ export const READ_OPERATIONS = {
   ],
   "signals.list": ["get_public_signals_list", "/v1/signals/", ["signals:read"]],
   "bookings.list": ["get_public_bookings_list", "/v1/bookings/", ["bookings:read"]],
-  "revenue.transactions": [
-    "get_public_revenue_transactions",
-    "/v1/revenue/transactions/",
-    ["revenue:read"],
-  ],
+  "revenue.transactions": ["get_public_revenue_transactions", "/v1/revenue/transactions/", ["revenue:read"]],
   "revenue.summary": ["get_public_revenue_summary", "/v1/revenue/summary/", ["revenue:read"]],
   "revenue.manual": ["get_public_revenue_manual", "/v1/revenue/manual/", ["revenue:read"]],
   "config.funnels": ["get_public_config_funnels", "/v1/config/funnels/", ["config:read"]],
@@ -442,24 +451,12 @@ export const READ_OPERATIONS = {
     "/v1/analytics/response-times/",
     ["analytics:read"],
   ],
-  "analytics.reply-rate": [
-    "get_public_analytics_reply_rate",
-    "/v1/analytics/reply-rate/",
-    ["analytics:read"],
-  ],
+  "analytics.reply-rate": ["get_public_analytics_reply_rate", "/v1/analytics/reply-rate/", ["analytics:read"]],
   "analytics.funnel": ["get_public_analytics_funnel", "/v1/analytics/funnel/", ["analytics:read"]],
-  "analytics.messages": [
-    "get_public_analytics_messages",
-    "/v1/analytics/messages/",
-    ["analytics:read"],
-  ],
+  "analytics.messages": ["get_public_analytics_messages", "/v1/analytics/messages/", ["analytics:read"]],
   "analytics.team": ["get_public_analytics_team", "/v1/analytics/team/", ["analytics:read"]],
   "analytics.links": ["get_public_analytics_links", "/v1/analytics/links/", ["analytics:read"]],
-  "analytics.benchmarks": [
-    "get_public_analytics_benchmarks",
-    "/v1/analytics/benchmarks/",
-    ["analytics:read"],
-  ],
+  "analytics.benchmarks": ["get_public_analytics_benchmarks", "/v1/analytics/benchmarks/", ["analytics:read"]],
 } as const;
 ```
 
@@ -484,6 +481,7 @@ Commit: `feat: add read command contract validation`
 ### Task 6: CLI command composition and end-to-end redaction
 
 **Files:**
+
 - Create: `src/cli/program.ts`
 - Create: `src/cli/commands/auth.ts`
 - Create: `src/cli/commands/openapi.ts`
@@ -494,6 +492,7 @@ Commit: `feat: add read command contract validation`
 - Test: `test/cli/redaction.test.ts`
 
 **Interfaces:**
+
 - Produces: `createProgram`, `runCli`, and the `mochi` executable.
 - Consumes: every production interface from Tasks 1–5.
 
@@ -559,6 +558,7 @@ Commit: `feat: expose agent-friendly read CLI`
 ### Task 7: Documentation, CI, packaging, and live contract gate
 
 **Files:**
+
 - Create: `README.md`
 - Create: `SECURITY.md`
 - Create: `LICENSE`
@@ -570,6 +570,7 @@ Commit: `feat: expose agent-friendly read CLI`
 - Test: `test/package/package.test.ts`
 
 **Interfaces:**
+
 - Produces: contributor/release contract and installable npm tarball.
 - Consumes: built `dist/cli.js` and the published OpenAPI URL.
 
@@ -591,9 +592,11 @@ the private security-reporting route.
 - [ ] **Step 3: Add CI and live-contract workflows**
 
 `ci.yml` runs `npm ci`, `npm run ci`, `npm audit --omit=dev --audit-level=high`,
-and `node scripts/verify-package.mjs` on pull requests. Use Node 20 and pinned
-major action versions. `live-contract.yml` runs daily and manually, downloads
-the public GitBook artifact, and calls the same validator used by the CLI.
+and `node scripts/verify-package.mjs` on pull requests. Use Node 20, pinned major
+action versions, and both `ubuntu-latest` and `windows-latest`; Windows is a hard
+release gate for Credential Manager, inherited-ACL metadata, and directory-lease
+behavior. `live-contract.yml` runs daily and manually, downloads the public
+GitBook artifact, and calls the same validator used by the CLI.
 
 - [ ] **Step 4: Add a manual provenance publication workflow**
 
