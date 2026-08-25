@@ -1,6 +1,6 @@
 import type { RuntimeConfig } from "../core/config.js";
 import { CliError, ExitCode } from "../core/errors.js";
-import { isReadScope, type ReadScope } from "../core/scopes.js";
+import { isReadScope, normalizeReadScopes, type ReadScope } from "../core/scopes.js";
 import { withCredentialLock as acquireCredentialLock } from "../storage/lock.js";
 import { resolveStoragePaths } from "../storage/paths.js";
 import {
@@ -49,7 +49,7 @@ export interface LoginOptions {
 }
 
 export async function login(options: LoginOptions): Promise<LoginResult> {
-  const scopes = normalizeScopes(options.readonlyScopes ?? []);
+  const scopes = normalizeReadScopes(options.readonlyScopes ?? []);
   const metadata = await (options.discoverOAuth ?? discoverMetadata)({
     issuerUrl: options.config.issuerUrl,
     http: options.http,
@@ -137,19 +137,6 @@ function buildAuthorizationUrl(
     code_challenge_method: "S256",
   }).toString();
   return url.toString();
-}
-
-function normalizeScopes(values: readonly string[]): ReadScope[] {
-  const requested = values.length === 0 ? ["leads:read"] : values;
-  const normalized = requested.map((scope) => scope.trim());
-  if (normalized.some((scope) => !isReadScope(scope))) {
-    throw new CliError(
-      "OAUTH_SCOPE_INVALID",
-      "Only documented read-only Mochi scopes may be requested.",
-      ExitCode.Usage,
-    );
-  }
-  return [...new Set(normalized)].sort() as ReadScope[];
 }
 
 function decodeTokenBundle(

@@ -65,9 +65,7 @@ export function addReadCommands(
     });
 
   const connections = program.command("connections").description("Read Mochi connections.");
-  connections.command("list").action(async () => {
-    await executeReadOperation("connections.list", {}, [], dependencies, execution);
-  });
+  addListCommand(connections, "connections.list", dependencies, execution);
 
   const api = program.command("api").description("Use the same-origin read-only escape hatch.");
   api
@@ -126,6 +124,7 @@ async function executeApiGet(target: string, dependencies: CliRuntimeDependencie
   if (response.status < 200 || response.status >= 300) {
     throw new CliError("API_RESPONSE", "The Mochi API returned an unsuccessful response.", ExitCode.Api, {
       status: response.status,
+      ...(response.retryAfter === undefined ? {} : { retryAfter: response.retryAfter }),
     });
   }
   return response.body;

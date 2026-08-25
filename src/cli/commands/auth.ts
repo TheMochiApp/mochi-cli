@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import { normalizeReadScopes } from "../../core/scopes.js";
 import type { CliRuntimeDependencies, ProgramExecution } from "../program.js";
 
 export function addAuthCommands(
@@ -14,7 +15,7 @@ export function addAuthCommands(
     .description("Authorize read-only access in a browser.")
     .option("--scopes <scopes>", "Comma-separated read-only scopes.")
     .action(async (options: { scopes?: string }) => {
-      const scopes = options.scopes === undefined ? [] : options.scopes.split(",");
+      const scopes = normalizeReadScopes(options.scopes === undefined ? [] : options.scopes.split(","));
       execution.complete(await dependencies.login(scopes, execution.stderr));
     });
 

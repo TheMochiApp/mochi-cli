@@ -12,6 +12,7 @@ export interface FailureJson {
     message: string;
     details?: {
       status: number;
+      retryAfter?: string;
     };
   };
 }
@@ -24,12 +25,13 @@ export function successJson<T>(data: T): SuccessJson<T> {
 
 export function failureJson(error: CliError): FailureJson {
   const status = safeHttpStatus(error.details?.status);
+  const retryAfter = safeRetryAfter(error.details?.retryAfter);
   return {
     ok: false,
     error: {
       code: error.code,
       message: error.message,
-      ...(status === null ? {} : { details: { status } }),
+      ...(status === null ? {} : { details: { status, ...(retryAfter === null ? {} : { retryAfter }) } }),
     },
   };
 }
@@ -60,4 +62,14 @@ function sanitizeErrorValues(value: unknown, seen = new WeakSet<object>()): unkn
 
 function safeHttpStatus(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599 ? value : null;
+}
+
+function safeRetryAfter(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (/^(?:0|[1-9]\d{0,9})$/u.test(value)) return value;
+  return /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/u.test(
+    value,
+  )
+    ? value
+    : null;
 }

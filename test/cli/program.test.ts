@@ -114,7 +114,9 @@ describe("CLI command composition", () => {
   test("parses login scopes and explicit local-only logout", async () => {
     const dependencies = createDependencies();
 
-    expect((await invoke(["auth", "login", "--scopes", "leads:read,signals:read"], dependencies)).exitCode).toBe(0);
+    expect(
+      (await invoke(["auth", "login", "--scopes", " signals:read,leads:read,signals:read "], dependencies)).exitCode,
+    ).toBe(0);
     expect(dependencies.login).toHaveBeenCalledWith(["leads:read", "signals:read"], expect.any(Function));
 
     expect((await invoke(["auth", "status"], dependencies)).exitCode).toBe(0);
@@ -122,6 +124,26 @@ describe("CLI command composition", () => {
 
     expect((await invoke(["auth", "logout", "--local-only"], dependencies)).exitCode).toBe(0);
     expect(dependencies.logout).toHaveBeenCalledWith(true);
+  });
+
+  test("defaults and validates login scopes before invoking the dependency", async () => {
+    const defaultDependencies = createDependencies();
+    expect((await invoke(["auth", "login"], defaultDependencies)).exitCode).toBe(0);
+    expect(defaultDependencies.login).toHaveBeenCalledWith(["leads:read"], expect.any(Function));
+
+    for (const value of ["leads:write", "leads:read,", "leads:read,   "]) {
+      const invalidDependencies = createDependencies();
+      const invocation = await invoke(["auth", "login", "--scopes", value], invalidDependencies);
+      expect(invocation.result).toEqual({
+        ok: false,
+        error: {
+          code: "OAUTH_SCOPE_INVALID",
+          message: "Only documented read-only Mochi scopes may be requested.",
+        },
+      });
+      expect(invocation.exitCode).toBe(2);
+      expect(invalidDependencies.login).not.toHaveBeenCalled();
+    }
   });
 
   test("fetches and validates OpenAPI through the injected adapters", async () => {
@@ -182,6 +204,21 @@ describe("CLI command composition", () => {
     expect(invocation.result).toEqual({ ok: true, data: { ok: true, data: [1, 2] } });
   });
 
+  test("preserves repeated connection-list queries deterministically", async () => {
+    const dependencies = createDependencies();
+
+    const invocation = await invoke(
+      ["connections", "list", "--query", "type=instagram", "--query", "status=active"],
+      dependencies,
+    );
+
+    expect(dependencies.apiGet).toHaveBeenCalledWith("/v1/connections/?type=instagram&status=active");
+    expect(invocation.result).toEqual({
+      ok: true,
+      data: { path: "/v1/connections/?type=instagram&status=active" },
+    });
+  });
+
   test("rejects missing operation scopes before API HTTP", async () => {
     const dependencies = createDependencies({
       status: vi.fn(async (): Promise<AuthStatus> => ({
@@ -227,7 +264,7 @@ describe("CLI command composition", () => {
     expect(dependencies.apiGet).not.toHaveBeenCalled();
   });
 
-  test("maps API failure to bounded structured status without returning its body", async () => {
+  test("maps API failure to bounded structured status and Retry-After without returning its body", async () => {
     const dependencies = createDependencies({
       apiGet: vi.fn(async () => ({ status: 429, body: { code: "secret-or-unbounded" }, retryAfter: "10" })),
     });
@@ -239,11 +276,33 @@ describe("CLI command composition", () => {
       error: {
         code: "API_RESPONSE",
         message: "The Mochi API returned an unsuccessful response.",
-        details: { status: 429 },
+        details: { status: 429, retryAfter: "10" },
       },
     });
     expect(invocation.exitCode).toBe(6);
   });
+
+  test.each(["REFRESH_TOKEN_CANARY_a91f", "x".repeat(300), "10 REFRESH_TOKEN_CANARY_a91f", "-1"])(
+    "omits an unsafe Retry-After value from API failure output",
+    async (retryAfter) => {
+      const dependencies = createDependencies({
+        apiGet: vi.fn(async () => ({ status: 429, body: {}, retryAfter })),
+      });
+
+      const invocation = await invoke(["leads", "list"], dependencies);
+      const serialized = JSON.stringify(invocation);
+
+      expect(invocation.result).toEqual({
+        ok: false,
+        error: {
+          code: "API_RESPONSE",
+          message: "The Mochi API returned an unsuccessful response.",
+          details: { status: 429 },
+        },
+      });
+      expect(serialized).not.toContain("REFRESH_TOKEN_CANARY_a91f");
+    },
+  );
 
   test.each(["--token", "--secret", "--verifier", "--authorization-code", "--bearer"])(
     "does not define a credential-bearing %s option",

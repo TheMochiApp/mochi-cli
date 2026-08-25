@@ -48,6 +48,7 @@ function failingDependencies(kind: "login" | "refresh" | "api" | "logout"): CliR
       if (kind === "api") {
         return {
           status: 500,
+          retryAfter: Object.values(canaries).join("|"),
           body: {
             accessToken: canaries.accessToken,
             refreshToken: canaries.refreshToken,
