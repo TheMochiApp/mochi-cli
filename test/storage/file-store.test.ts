@@ -120,4 +120,34 @@ describe("file credential store", () => {
 
     await expect(fileStore.set("secret-json")).rejects.toMatchObject({ code: "CREDENTIAL_STORAGE_FAILED" });
   });
+
+  test("uses inherited Windows ACLs without requiring emulated POSIX mode bits", async () => {
+    const root = await temporaryPath();
+    const configDirectory = join(root, "mochi");
+    await mkdir(configDirectory, { mode: 0o755 });
+    const fileStore = createFileStore(join(configDirectory, "oauth-client.json"), {
+      platform: "win32",
+      directorySync: async () => undefined,
+    });
+
+    await fileStore.set("public-client-metadata");
+
+    expect(await fileStore.get()).toBe("public-client-metadata");
+  });
+
+  test("still rejects symlinked paths under injected Windows semantics", async () => {
+    const root = await temporaryPath();
+    const targetDirectory = join(root, "target");
+    const configDirectory = join(root, "mochi");
+    await mkdir(targetDirectory, { mode: 0o755 });
+    await symlink(targetDirectory, configDirectory, "dir");
+    const fileStore = createFileStore(join(configDirectory, "oauth-client.json"), {
+      platform: "win32",
+    });
+
+    await expect(fileStore.set("public-client-metadata")).rejects.toMatchObject({
+      code: "CREDENTIAL_STORAGE_UNSAFE",
+    });
+    expect(await readdir(targetDirectory)).toEqual([]);
+  });
 });

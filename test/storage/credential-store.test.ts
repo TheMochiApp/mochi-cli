@@ -143,4 +143,23 @@ describe("credential repository", () => {
 
     await expect(repository.getCredentials()).rejects.toMatchObject({ code: "CREDENTIAL_INVALID" });
   });
+
+  test("fails closed on Windows when the native keyring is unavailable", async () => {
+    const fileStore: SecretStore = {
+      get: vi.fn(async () => null),
+      set: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+    };
+
+    await expect(
+      createCredentialRepository({
+        platform: "win32",
+        keyringLoader: async () => {
+          throw new Error("native binding unavailable");
+        },
+        fileStore,
+      }),
+    ).rejects.toMatchObject({ code: "CREDENTIAL_STORAGE_UNAVAILABLE" });
+    expect(fileStore.get).not.toHaveBeenCalled();
+  });
 });

@@ -21,22 +21,22 @@ export function createFileStore(filePath: string, options: FileStoreOptions = {}
   return {
     async get(): Promise<string | null> {
       try {
-        if (!(await validateExistingOwnerOnlyDirectory(directory))) {
+        if (!(await validateExistingOwnerOnlyDirectory(directory, platform))) {
           return null;
         }
-        return await readOwnerOnlyRegularFile(filePath);
+        return await readOwnerOnlyRegularFile(filePath, platform);
       } catch (error) {
         throw storageFailure(error);
       }
     },
 
     async set(value: string): Promise<void> {
-      await ensureOwnerOnlyDirectory(directory);
+      await ensureOwnerOnlyDirectory(directory, platform);
       const temporaryPath = join(directory, `.${basename(filePath)}.${randomBytes(16).toString("hex")}.tmp`);
       let temporaryCreated = false;
 
       try {
-        await validateExistingOwnerOnlyRegularFile(filePath);
+        await validateExistingOwnerOnlyRegularFile(filePath, platform);
         const handle = await open(temporaryPath, "wx", 0o600);
         temporaryCreated = true;
         try {
@@ -59,10 +59,10 @@ export function createFileStore(filePath: string, options: FileStoreOptions = {}
 
     async delete(): Promise<void> {
       try {
-        if (!(await validateExistingOwnerOnlyDirectory(directory))) {
+        if (!(await validateExistingOwnerOnlyDirectory(directory, platform))) {
           return;
         }
-        const existing = await validateExistingOwnerOnlyRegularFile(filePath);
+        const existing = await validateExistingOwnerOnlyRegularFile(filePath, platform);
         if (!existing) {
           return;
         }
@@ -70,7 +70,7 @@ export function createFileStore(filePath: string, options: FileStoreOptions = {}
         const claimedPath = join(directory, `.${basename(filePath)}.${randomBytes(16).toString("hex")}.delete`);
         await rename(filePath, claimedPath);
         try {
-          await validateExistingOwnerOnlyRegularFile(claimedPath);
+          await validateExistingOwnerOnlyRegularFile(claimedPath, platform);
           await unlink(claimedPath);
         } catch (error) {
           await restoreClaimedFile(claimedPath, filePath);
@@ -86,7 +86,10 @@ export function createFileStore(filePath: string, options: FileStoreOptions = {}
   };
 }
 
-export async function ensureOwnerOnlyDirectory(directory: string): Promise<void> {
+export async function ensureOwnerOnlyDirectory(
+  directory: string,
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
   try {
     await mkdir(directory, { recursive: true, mode: 0o700 });
   } catch (error) {
@@ -94,15 +97,15 @@ export async function ensureOwnerOnlyDirectory(directory: string): Promise<void>
   }
 
   const stats = await safeLstat(directory);
-  if (!stats?.isDirectory() || stats.isSymbolicLink() || !isOwnedByCurrentUser(stats)) {
+  if (!stats?.isDirectory() || stats.isSymbolicLink()) {
     throw unsafeStorage();
   }
-  if ((Number(stats.mode) & 0o777) !== 0o700) {
+  if (platform !== "win32" && (!isOwnedByCurrentUser(stats) || (Number(stats.mode) & 0o777) !== 0o700)) {
     throw unsafeStorage();
   }
 }
 
-async function validateExistingOwnerOnlyDirectory(directory: string): Promise<boolean> {
+async function validateExistingOwnerOnlyDirectory(directory: string, platform: NodeJS.Platform): Promise<boolean> {
   const stats = await safeLstat(directory);
   if (!stats) {
     return false;
@@ -110,20 +113,19 @@ async function validateExistingOwnerOnlyDirectory(directory: string): Promise<bo
   if (
     stats.isSymbolicLink() ||
     !stats.isDirectory() ||
-    !isOwnedByCurrentUser(stats) ||
-    (Number(stats.mode) & 0o777) !== 0o700
+    (platform !== "win32" && (!isOwnedByCurrentUser(stats) || (Number(stats.mode) & 0o777) !== 0o700))
   ) {
     throw unsafeStorage();
   }
   return true;
 }
 
-async function readOwnerOnlyRegularFile(filePath: string): Promise<string | null> {
+async function readOwnerOnlyRegularFile(filePath: string, platform: NodeJS.Platform): Promise<string | null> {
   const pathStats = await safeLstat(filePath);
   if (!pathStats) {
     return null;
   }
-  validateOwnerOnlyRegularStats(pathStats);
+  validateOwnerOnlyRegularStats(pathStats, platform);
 
   let handle;
   try {
@@ -140,7 +142,7 @@ async function readOwnerOnlyRegularFile(filePath: string): Promise<string | null
 
   try {
     const stats = await handle.stat();
-    validateOwnerOnlyRegularStats(stats);
+    validateOwnerOnlyRegularStats(stats, platform);
     if (!sameFile(pathStats, stats)) {
       throw unsafeStorage();
     }
@@ -150,12 +152,12 @@ async function readOwnerOnlyRegularFile(filePath: string): Promise<string | null
   }
 }
 
-async function validateExistingOwnerOnlyRegularFile(filePath: string): Promise<boolean> {
+async function validateExistingOwnerOnlyRegularFile(filePath: string, platform: NodeJS.Platform): Promise<boolean> {
   const pathStats = await safeLstat(filePath);
   if (!pathStats) {
     return false;
   }
-  validateOwnerOnlyRegularStats(pathStats);
+  validateOwnerOnlyRegularStats(pathStats, platform);
 
   let handle;
   try {
@@ -172,7 +174,7 @@ async function validateExistingOwnerOnlyRegularFile(filePath: string): Promise<b
 
   try {
     const handleStats = await handle.stat();
-    validateOwnerOnlyRegularStats(handleStats);
+    validateOwnerOnlyRegularStats(handleStats, platform);
     if (!sameFile(pathStats, handleStats)) {
       throw unsafeStorage();
     }
@@ -182,8 +184,11 @@ async function validateExistingOwnerOnlyRegularFile(filePath: string): Promise<b
   }
 }
 
-function validateOwnerOnlyRegularStats(stats: Awaited<ReturnType<typeof lstat>>): void {
-  if (!stats.isFile() || !isOwnedByCurrentUser(stats) || (Number(stats.mode) & 0o777) !== 0o600) {
+function validateOwnerOnlyRegularStats(stats: Awaited<ReturnType<typeof lstat>>, platform: NodeJS.Platform): void {
+  if (
+    !stats.isFile() ||
+    (platform !== "win32" && (!isOwnedByCurrentUser(stats) || (Number(stats.mode) & 0o777) !== 0o600))
+  ) {
     throw unsafeStorage();
   }
 }

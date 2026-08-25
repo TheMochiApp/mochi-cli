@@ -1,18 +1,41 @@
-import { mkdir, mkdtemp, readFile, rename, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
 
-import { CliError } from "../../src/core/errors.js";
 import { withCredentialLock } from "../../src/storage/lock.js";
 
 const temporaryDirectories: string[] = [];
 
-async function lockPath(): Promise<string> {
+async function leasePath(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "mochi-lock-"));
   temporaryDirectories.push(directory);
   return join(directory, "mochi", "credentials.lock");
+}
+
+async function createLease(
+  path: string,
+  owner: { nonce: string; acquiredAt: number } | string | null,
+  options: { directoryMode?: number; ownerMode?: number; modifiedAt?: number } = {},
+): Promise<void> {
+  await mkdir(dirname(path), { recursive: true, mode: options.directoryMode ?? 0o700 });
+  await mkdir(path, { mode: options.directoryMode ?? 0o700 });
+  if (owner !== null) {
+    await writeFile(join(path, "owner"), typeof owner === "string" ? owner : JSON.stringify(owner), {
+      mode: options.ownerMode ?? 0o600,
+    });
+  }
+  if (options.modifiedAt !== undefined) {
+    if (owner !== null) {
+      await utimes(join(path, "owner"), options.modifiedAt / 1000, options.modifiedAt / 1000);
+    }
+    await utimes(path, options.modifiedAt / 1000, options.modifiedAt / 1000);
+  }
+}
+
+async function readOwner(path: string): Promise<{ nonce: string; acquiredAt: number }> {
+  return JSON.parse(await readFile(join(path, "owner"), "utf8"));
 }
 
 afterEach(async () => {
@@ -20,9 +43,9 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })));
 });
 
-describe("credential lock", () => {
-  test("serializes two contenders and creates an owner-only lock", async () => {
-    const path = await lockPath();
+describe("credential directory lease", () => {
+  test("serializes two contenders with an owner-only directory and owner record", async () => {
+    const path = await leasePath();
     const events: string[] = [];
     let releaseFirst: (() => void) | undefined;
     const firstMayFinish = new Promise<void>((resolve) => {
@@ -37,7 +60,8 @@ describe("credential lock", () => {
       path,
       async () => {
         events.push("first-start");
-        expect((await stat(path)).mode & 0o777).toBe(0o600);
+        expect((await stat(path)).mode & 0o777).toBe(0o700);
+        expect((await stat(join(path, "owner"))).mode & 0o777).toBe(0o600);
         firstStarted?.();
         await firstMayFinish;
         events.push("first-finish");
@@ -58,12 +82,12 @@ describe("credential lock", () => {
     releaseFirst?.();
     await Promise.all([first, second]);
     expect(events).toEqual(["first-start", "first-finish", "second-start"]);
+    await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  test("removes a lock only when its stored timestamp is older than sixty seconds", async () => {
-    const path = await lockPath();
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    await writeFile(path, JSON.stringify({ nonce: "stale-owner", acquiredAt: 9_999 }), { mode: 0o600 });
+  test("removes a valid lease only when its timestamp is older than sixty seconds", async () => {
+    const path = await leasePath();
+    await createLease(path, { nonce: "stale-owner", acquiredAt: 9_999 });
     let now = 70_000;
 
     const result = await withCredentialLock(path, async () => "acquired", {
@@ -75,46 +99,11 @@ describe("credential lock", () => {
     });
 
     expect(result).toBe("acquired");
-    await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  test("does not remove a replacement lock it no longer owns", async () => {
-    const path = await lockPath();
-
-    await withCredentialLock(
-      path,
-      async () => {
-        await writeFile(path, JSON.stringify({ nonce: "replacement", acquiredAt: 1 }), { mode: 0o600 });
-      },
-      { nonce: () => "original", now: () => 1 },
-    );
-
-    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ nonce: "replacement", acquiredAt: 1 });
-  });
-
-  test("fails after the ten-second acquisition deadline without removing a live lock", async () => {
-    const path = await lockPath();
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    await writeFile(path, JSON.stringify({ nonce: "live-owner", acquiredAt: 0 }), { mode: 0o600 });
-    let now = 0;
-
-    const failure = await withCredentialLock(path, async () => undefined, {
-      now: () => now,
-      sleep: async (milliseconds) => {
-        now += milliseconds;
-      },
-    }).catch((error: unknown) => error);
-
-    expect(failure).toBeInstanceOf(CliError);
-    expect(failure).toMatchObject({ code: "CREDENTIAL_LOCK_TIMEOUT" });
-    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ nonce: "live-owner", acquiredAt: 0 });
-  });
-
-  test("reaps an empty crash-created lock only after its trusted file age exceeds sixty seconds", async () => {
-    const path = await lockPath();
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    await writeFile(path, "", { mode: 0o600 });
-    await utimes(path, 0, 0);
+  test("recovers an old empty directory left by a crash", async () => {
+    const path = await leasePath();
+    await createLease(path, null, { modifiedAt: 0 });
     let now = 70_000;
 
     const result = await withCredentialLock(path, async () => "recovered", {
@@ -127,10 +116,24 @@ describe("credential lock", () => {
     expect(result).toBe("recovered");
   });
 
-  test("preserves a fresh malformed lock through the acquisition deadline", async () => {
-    const path = await lockPath();
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    await writeFile(path, "", { mode: 0o600 });
+  test("recovers an old malformed owner record left by a crash", async () => {
+    const path = await leasePath();
+    await createLease(path, "not-json", { modifiedAt: 0 });
+    let now = 70_000;
+
+    const result = await withCredentialLock(path, async () => "recovered", {
+      now: () => now,
+      sleep: async (milliseconds) => {
+        now += milliseconds;
+      },
+    });
+
+    expect(result).toBe("recovered");
+  });
+
+  test("preserves a fresh empty crash directory through the deadline", async () => {
+    const path = await leasePath();
+    await createLease(path, null);
     let now = Date.now();
 
     await expect(
@@ -141,11 +144,25 @@ describe("credential lock", () => {
         },
       }),
     ).rejects.toMatchObject({ code: "CREDENTIAL_LOCK_TIMEOUT" });
-    expect(await readFile(path, "utf8")).toBe("");
+    expect(await readdir(path)).toEqual([]);
   });
 
-  test("atomically claims its lock before cleanup and cannot unlink a replacement pathname", async () => {
-    const path = await lockPath();
+  test("never removes a non-empty lease containing unrecognized entries", async () => {
+    const path = await leasePath();
+    await createLease(path, { nonce: "do-not-delete", acquiredAt: 0 }, { modifiedAt: 0 });
+    await writeFile(join(path, "unexpected"), "preserve", { mode: 0o600 });
+
+    await expect(withCredentialLock(path, async () => undefined, { now: () => 70_000 })).rejects.toMatchObject({
+      code: "CREDENTIAL_LOCK_UNSAFE",
+    });
+    await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
+    const claimName = (await readdir(dirname(path))).find((entry) => entry.includes(".credentials.lock.claim."));
+    expect(claimName).toBeDefined();
+    expect((await readdir(join(dirname(path), claimName as string))).sort()).toEqual(["owner", "unexpected"]);
+  });
+
+  test("release removes only its unique claim when a replacement wins the fixed path", async () => {
+    const path = await leasePath();
     const replacement = { nonce: "replacement", acquiredAt: 2 };
     let replacementInstalled = false;
 
@@ -154,24 +171,49 @@ describe("credential lock", () => {
       now: () => 1,
       renameFile: async (source, destination) => {
         await rename(source, destination);
-        if (destination === `${path}.claim` && !replacementInstalled) {
+        if (source === path && destination.includes(".claim.") && !replacementInstalled) {
           replacementInstalled = true;
-          await writeFile(path, JSON.stringify(replacement), { mode: 0o600 });
+          await createLease(path, replacement);
         }
       },
     });
 
-    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(replacement);
+    expect(await readOwner(path)).toEqual(replacement);
   });
 
-  test("records the actual successful acquisition time after contention", async () => {
-    const path = await lockPath();
+  test("stale cleanup never removes a fully initialized replacement lease", async () => {
+    const path = await leasePath();
+    await createLease(path, { nonce: "stale", acquiredAt: 0 }, { modifiedAt: 0 });
+    const replacement = { nonce: "replacement", acquiredAt: 70_000 };
+    let replacementInstalled = false;
+    let now = 70_000;
+
+    await expect(
+      withCredentialLock(path, async () => undefined, {
+        now: () => now,
+        sleep: async (milliseconds) => {
+          now += milliseconds;
+        },
+        renameFile: async (source, destination) => {
+          await rename(source, destination);
+          if (source === path && destination.includes(".claim.") && !replacementInstalled) {
+            replacementInstalled = true;
+            await createLease(path, replacement);
+          }
+        },
+      }),
+    ).rejects.toMatchObject({ code: "CREDENTIAL_LOCK_TIMEOUT" });
+    expect(await readOwner(path)).toEqual(replacement);
+  });
+
+  test("records acquisition time after the atomic directory mkdir succeeds", async () => {
+    const path = await leasePath();
     const times = [100, 250];
 
     await withCredentialLock(
       path,
       async () => {
-        expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ nonce: "owner", acquiredAt: 250 });
+        expect(await readOwner(path)).toEqual({ nonce: "owner", acquiredAt: 250 });
       },
       {
         nonce: () => "owner",
@@ -180,22 +222,27 @@ describe("credential lock", () => {
     );
   });
 
-  test("rejects a symlinked lock without changing its target", async () => {
-    const path = await lockPath();
-    const target = join(dirname(path), "unrelated");
-    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-    await writeFile(target, JSON.stringify({ nonce: "target", acquiredAt: 0 }), { mode: 0o600 });
-    await symlink(target, path);
-    let now = 1;
+  test("acquires under injected Windows ACL semantics without exact POSIX directory bits", async () => {
+    const path = await leasePath();
+    await mkdir(dirname(path), { recursive: true, mode: 0o755 });
 
-    await expect(
-      withCredentialLock(path, async () => undefined, {
-        now: () => now,
-        sleep: async (milliseconds) => {
-          now += milliseconds;
-        },
-      }),
-    ).rejects.toMatchObject({ code: "CREDENTIAL_LOCK_UNSAFE" });
-    expect(JSON.parse(await readFile(target, "utf8"))).toEqual({ nonce: "target", acquiredAt: 0 });
+    const result = await withCredentialLock(path, async () => "acquired", {
+      platform: "win32",
+      now: () => 1,
+    });
+
+    expect(result).toBe("acquired");
+  });
+
+  test("rejects a symlinked lease directory without touching its target", async () => {
+    const path = await leasePath();
+    const target = join(dirname(path), "unrelated");
+    await createLease(target, { nonce: "target", acquiredAt: 0 });
+    await symlink(target, path, "dir");
+
+    await expect(withCredentialLock(path, async () => undefined)).rejects.toMatchObject({
+      code: "CREDENTIAL_LOCK_UNSAFE",
+    });
+    expect(await readOwner(target)).toEqual({ nonce: "target", acquiredAt: 0 });
   });
 });

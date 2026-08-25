@@ -14,6 +14,7 @@ import {
 
 export interface CredentialRepositoryOptions {
   runtimeConfig?: RuntimeConfig;
+  platform?: NodeJS.Platform;
   keyringLoader?: () => Promise<SecretStore>;
   fileStore?: SecretStore;
   clientStore?: SecretStore;
@@ -22,9 +23,10 @@ export interface CredentialRepositoryOptions {
 export async function createCredentialRepository(
   options: CredentialRepositoryOptions = {},
 ): Promise<CredentialRepository> {
-  const paths = resolveStoragePaths();
-  const fileStore = options.fileStore ?? createFileStore(paths.credentialsPath);
-  const clientStore = options.clientStore ?? createFileStore(paths.clientPath);
+  const platform = options.platform ?? process.platform;
+  const paths = resolveStoragePaths({ platform });
+  const fileStore = options.fileStore ?? createFileStore(paths.credentialsPath, { platform });
+  const clientStore = options.clientStore ?? createFileStore(paths.clientPath, { platform });
   const keyringLoader = options.keyringLoader ?? loadNativeKeyringStore;
   let credentialStore: SecretStore;
   let backend: CredentialRepository["backend"];
@@ -34,6 +36,13 @@ export async function createCredentialRepository(
     await credentialStore.get();
     backend = "keyring";
   } catch {
+    if (platform === "win32") {
+      throw new CliError(
+        "CREDENTIAL_STORAGE_UNAVAILABLE",
+        "The Windows credential manager is unavailable; plaintext credential fallback is disabled.",
+        ExitCode.Local,
+      );
+    }
     credentialStore = fileStore;
     backend = "file-0600";
   }

@@ -7,6 +7,7 @@ export interface StoragePaths {
   configDirectory: string;
   credentialsPath: string;
   clientPath: string;
+  /** Fixed directory path used by the atomic credential lease protocol. */
   lockPath: string;
 }
 
@@ -14,6 +15,7 @@ export interface StoragePathOptions {
   environment?: Readonly<Record<string, string | undefined>>;
   homeDirectory?: string;
   platform?: NodeJS.Platform;
+  allowWindowsOverrideForTests?: boolean;
 }
 
 export function resolveStoragePaths(options: StoragePathOptions = {}): StoragePaths {
@@ -21,6 +23,13 @@ export function resolveStoragePaths(options: StoragePathOptions = {}): StoragePa
   const homeDirectory = options.homeDirectory ?? homedir();
   const platform = options.platform ?? process.platform;
   const configuredDirectory = environment.MOCHI_CONFIG_DIR;
+  if (platform === "win32" && configuredDirectory && !options.allowWindowsOverrideForTests) {
+    throw new CliError(
+      "CONFIG_INVALID",
+      "MOCHI_CONFIG_DIR is not accepted on Windows because its ACLs cannot be verified.",
+      ExitCode.Local,
+    );
+  }
   const configDirectory = configuredDirectory
     ? requireAbsolute(configuredDirectory)
     : defaultConfigDirectory(platform, homeDirectory, environment);
