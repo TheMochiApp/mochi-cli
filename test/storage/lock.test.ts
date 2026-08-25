@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -108,5 +108,94 @@ describe("credential lock", () => {
     expect(failure).toBeInstanceOf(CliError);
     expect(failure).toMatchObject({ code: "CREDENTIAL_LOCK_TIMEOUT" });
     expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ nonce: "live-owner", acquiredAt: 0 });
+  });
+
+  test("reaps an empty crash-created lock only after its trusted file age exceeds sixty seconds", async () => {
+    const path = await lockPath();
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await writeFile(path, "", { mode: 0o600 });
+    await utimes(path, 0, 0);
+    let now = 70_000;
+
+    const result = await withCredentialLock(path, async () => "recovered", {
+      now: () => now,
+      sleep: async (milliseconds) => {
+        now += milliseconds;
+      },
+    });
+
+    expect(result).toBe("recovered");
+  });
+
+  test("preserves a fresh malformed lock through the acquisition deadline", async () => {
+    const path = await lockPath();
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await writeFile(path, "", { mode: 0o600 });
+    let now = Date.now();
+
+    await expect(
+      withCredentialLock(path, async () => undefined, {
+        now: () => now,
+        sleep: async (milliseconds) => {
+          now += milliseconds;
+        },
+      }),
+    ).rejects.toMatchObject({ code: "CREDENTIAL_LOCK_TIMEOUT" });
+    expect(await readFile(path, "utf8")).toBe("");
+  });
+
+  test("atomically claims its lock before cleanup and cannot unlink a replacement pathname", async () => {
+    const path = await lockPath();
+    const replacement = { nonce: "replacement", acquiredAt: 2 };
+    let replacementInstalled = false;
+
+    await withCredentialLock(path, async () => undefined, {
+      nonce: () => "original",
+      now: () => 1,
+      renameFile: async (source, destination) => {
+        await rename(source, destination);
+        if (destination === `${path}.claim` && !replacementInstalled) {
+          replacementInstalled = true;
+          await writeFile(path, JSON.stringify(replacement), { mode: 0o600 });
+        }
+      },
+    });
+
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(replacement);
+  });
+
+  test("records the actual successful acquisition time after contention", async () => {
+    const path = await lockPath();
+    const times = [100, 250];
+
+    await withCredentialLock(
+      path,
+      async () => {
+        expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ nonce: "owner", acquiredAt: 250 });
+      },
+      {
+        nonce: () => "owner",
+        now: () => times.shift() ?? 250,
+      },
+    );
+  });
+
+  test("rejects a symlinked lock without changing its target", async () => {
+    const path = await lockPath();
+    const target = join(dirname(path), "unrelated");
+    await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+    await writeFile(target, JSON.stringify({ nonce: "target", acquiredAt: 0 }), { mode: 0o600 });
+    await symlink(target, path);
+    let now = 1;
+
+    await expect(
+      withCredentialLock(path, async () => undefined, {
+        now: () => now,
+        sleep: async (milliseconds) => {
+          now += milliseconds;
+        },
+      }),
+    ).rejects.toMatchObject({ code: "CREDENTIAL_LOCK_UNSAFE" });
+    expect(JSON.parse(await readFile(target, "utf8"))).toEqual({ nonce: "target", acquiredAt: 0 });
   });
 });
