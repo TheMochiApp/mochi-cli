@@ -90,6 +90,16 @@ describe("mochi-api skill structure", () => {
     });
   });
 
+  test("reports a missing skill directory without an unhandled filesystem error", async () => {
+    await withRepositoryCopy(async (repositoryCopy) => {
+      await rm(resolve(repositoryCopy, "skills/mochi-api"), { recursive: true, force: true });
+
+      await expect(inspectSkillRepository(repositoryCopy)).resolves.toContain(
+        "Expected exactly mochi-api, found: none.",
+      );
+    });
+  });
+
   test("keeps references one level deep", async () => {
     for (const referenceName of referenceNames) {
       const content = await readFile(resolve(skillRoot, "references", referenceName), "utf8");

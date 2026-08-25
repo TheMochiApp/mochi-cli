@@ -77,6 +77,7 @@ export async function inspectSkillRepository(repositoryRoot) {
   if (skillDirectories.join(",") !== "mochi-api") {
     errors.push(`Expected exactly mochi-api, found: ${skillDirectories.join(", ") || "none"}.`);
   }
+  if (!(await exists(skillRoot))) return errors.sort();
 
   const expectedFiles = ["SKILL.md", "agents/openai.yaml", ...expectedReferences.map((name) => `references/${name}`)];
   const collected = await collectSkillFiles(skillRoot);
