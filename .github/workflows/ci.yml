@@ -24,14 +24,17 @@ jobs:
           - windows-latest
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
       - name: Install exact dependencies
         run: npm ci
+      - name: Verify native Windows Credential Manager round trip
+        if: runner.os == 'Windows'
+        run: node scripts/verify-windows-keyring.mjs
       - name: Run formatting, lint, typecheck, tests, and build
         run: npm run ci
       - name: Audit production dependencies

@@ -2,7 +2,7 @@
 
 `mochi` is the read-only Mochi Public API client for humans, scripts, and AI agents. It uses direct browser OAuth with PKCE, stores credentials outside prompts and command history, and emits deterministic JSON.
 
-> Rollout status: this repository is Phase D of the Public API agent-access rollout. Installing it does not enable production access. Login and API calls work only after the Phase C backend and frontend are merged and Mochi operators explicitly enable the production prerequisites below for your organization.
+> Rollout status: this repository is Phase D of the Public API agent-access rollout. Installing it does not enable production access. Customer OAuth must remain off until the Phase C backend/frontend are merged and Phase F adds a real backend organization-cohort gate; the exact production prerequisites are below.
 
 ## Requirements and installation
 
@@ -98,6 +98,12 @@ mochi openapi validate
 mochi openapi fetch --output ./mochi-openapi.json
 ```
 
+Successful live validation reports the published versions and bounded registry size without dumping the document:
+
+```json
+{ "ok": true, "data": { "openapiVersion": "3.0.3", "apiVersion": "1.0.0", "operationCount": 18 } }
+```
+
 The canonical specification is the public [GitBook OpenAPI artifact](https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json). Mochi's backend workflow publishes it from the checked-in `docs/public-api-v1-openapi.json` Git artifact only after backend `master` CI succeeds. The CLI does not ship a second specification: validation checks every wrapped operation ID, GET path, and required scope against that published contract.
 
 ## JSON and exit-code contract
@@ -134,21 +140,24 @@ The preferred backend is the operating system credential store under service `ap
 
 If the native keyring is unavailable on macOS or Linux, the CLI falls back to an atomic owner-only file: the configuration directory is mode `0700` and the credential file is mode `0600`. The default root is macOS Application Support, `$XDG_CONFIG_HOME/mochi`, or `~/.config/mochi`; `MOCHI_CONFIG_DIR` may select an absolute POSIX development path.
 
-Windows requires Credential Manager and fails closed when it is unavailable. The CLI never falls back to a plaintext file on Windows because Node's POSIX mode bits cannot prove a secure Windows ACL. `MOCHI_CONFIG_DIR` is therefore rejected on Windows. CI runs the full lock and platform-path suites on Windows without requiring an interactive keyring prompt.
+Windows requires Credential Manager and fails closed when it is unavailable. The CLI never falls back to a plaintext file on Windows because Node's POSIX mode bits cannot prove a secure Windows ACL. `MOCHI_CONFIG_DIR` is therefore rejected on Windows. In addition to the full Windows test suite, CI dynamically loads the optional native module and performs an isolated set/get/delete round trip with unique service and account names on the ephemeral Windows runner. It never touches `app.themochi.cli/default` or prints the test value.
 
 Refresh-token rotation is transparent and serialized by a cross-process directory lease. `auth status` reports `keyring` or `file-0600` but never prints a credential path or value.
 
 ## Production prerequisites and dark deploy
 
-Merging or publishing this CLI changes no Mochi production configuration. Before customer login can succeed, operators must:
+Merging or publishing this CLI changes no Mochi production configuration. The current Phase C OAuth switch is global: `PUBLIC_API_OAUTH_ENABLED` is not an organization allowlist. `VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` controls only visibility of Settings → Developers; it does not gate CLI consent, OAuth authorization, refresh, authentication, or `/v1/` traffic.
+
+Do not describe the current controls as a named-organization OAuth canary, and do not turn on global OAuth “for one organization.” Customer OAuth enablement is forbidden until Phase F adds and enables a reviewed backend organization-cohort gate. After that gate exists, operators must:
 
 1. Merge and deploy the Phase C backend and frontend consent work.
 2. Keep the OAuth resource exactly `https://api.themochi.app/v1/` in backend `PUBLIC_API_OAUTH_RESOURCE` and frontend `VITE_PUBLIC_API_OAUTH_RESOURCE`.
-3. Set backend `PUBLIC_API_OAUTH_ENABLED=true` for Public API authorization and backend `PUBLIC_API_ENABLED=true` for authenticated `/v1/` reads.
-4. For Settings → Developers, separately set backend `PUBLIC_API_DEVELOPERS_ENABLED=true`, put only named organization UUIDs in frontend `VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS`, and redeploy the Vite bundle.
-5. Complete the Public API canary checklist with named organizations, read-only scopes, monitoring, and a rollback owner.
+3. Configure and verify the Phase F backend organization cohort before setting backend `PUBLIC_API_OAUTH_ENABLED=true` for Public API OAuth.
+4. Set backend `PUBLIC_API_ENABLED=true` only when authenticated Public API reads are ready globally under the approved API access controls.
+5. If Settings → Developers is also being exposed, separately set backend `PUBLIC_API_DEVELOPERS_ENABLED=true`, configure `VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS`, and redeploy the Vite bundle. This UI cohort is not an OAuth security boundary.
+6. Complete the Phase F rollout checklist with read-only scopes, monitoring, and a rollback owner.
 
-All backend flags default to false, and the frontend Developers cohort defaults empty. Disable `PUBLIC_API_OAUTH_ENABLED` to stop new Public API grants; disable `PUBLIC_API_ENABLED` for an API-wide rollback. Disabling the Developers UI alone does not revoke credentials already issued.
+All backend flags default to false, and the frontend Developers cohort defaults empty. Disabling `PUBLIC_API_OAUTH_ENABLED` removes OAuth metadata and stops new grants, refresh, and authentication of existing Public API OAuth tokens; API-key traffic remains available if `PUBLIC_API_ENABLED` stays true. Disabling `PUBLIC_API_ENABLED` rejects all Public API authentication and reads, including both OAuth and API keys. Disabling the Developers UI alone does not revoke credentials already issued.
 
 Phase D does not add write scopes or write commands and does not change MCP, Zapier, first-party application traffic, send enforcement, or P5 pacing controls.
 
@@ -156,11 +165,11 @@ Phase D does not add write scopes or write commands and does not change MCP, Zap
 
 - `AUTH_REQUIRED`: run `mochi auth login` in a terminal with browser access.
 - `MISSING_SCOPE`: re-run login with the smallest required read scopes.
-- `OAUTH_*`: confirm the Phase C frontend/backend are deployed, the OAuth resource matches exactly, and `PUBLIC_API_OAUTH_ENABLED` is on for the canary.
+- `OAUTH_*`: confirm the Phase C frontend/backend are deployed and the OAuth resource matches exactly. Production OAuth must remain off until the Phase F backend organization-cohort gate is deployed and configured.
 - `CREDENTIAL_STORAGE_UNAVAILABLE` on Windows: repair Credential Manager/native keyring access; plaintext fallback is intentionally disabled.
 - `CREDENTIAL_LOCK_TIMEOUT`: wait for the other CLI process to finish, then retry. The CLI reclaims only fully revalidated stale leases.
 - `OPENAPI_DRIFT`: do not bypass it. Check the published backend OpenAPI change and update the bounded command registry deliberately.
 - `429`/exit 6: honor `error.details.retryAfter` before retrying.
 - Logout cannot reach Mochi: retry `mochi auth logout`; use `--local-only` only when you intentionally accept that server-side revocation was not confirmed.
 
-Public API documentation is available in [GitBook](https://mochi-9.gitbook.io/mochi-api/). Report vulnerabilities through the private route in [SECURITY.md](SECURITY.md).
+Public API documentation is available in [GitBook](https://mochi-9.gitbook.io/mochi-api/). Report vulnerabilities through the private route in [SECURITY.md](SECURITY.md). Maintainers must complete [RELEASING.md](RELEASING.md) before any npm publication.

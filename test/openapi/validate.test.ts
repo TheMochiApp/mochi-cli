@@ -35,7 +35,23 @@ function expectDrift(document: Record<string, unknown>, operationKey: string): v
 
 describe("validateReadOperations", () => {
   test("accepts the canonical bounded read contract", async () => {
-    expect(validateReadOperations(await fixture())).toEqual({ operationCount: 18 });
+    expect(validateReadOperations(await fixture())).toEqual({
+      openapiVersion: "3.0.3",
+      apiVersion: "1.0.0",
+      operationCount: 18,
+    });
+  });
+
+  test.each([
+    ["OpenAPI version", { openapi: "   " }],
+    ["API version", { info: { version: "" } }],
+  ])("rejects a blank %s while preserving bounded structural validation", async (_name, replacement) => {
+    const document = clone(await fixture());
+    Object.assign(document, replacement);
+
+    expect(() => validateReadOperations(document)).toThrowError(
+      expect.objectContaining({ code: "OPENAPI_INVALID", details: undefined }),
+    );
   });
 
   test("rejects operation ID drift without dumping the document", async () => {

@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { inspectPackagePaths, inspectSourceMap } from "../../scripts/package-policy.mjs";
+
 interface PackFile {
   path: string;
 }
@@ -31,21 +33,8 @@ beforeAll(() => {
 });
 
 describe("published package", () => {
-  it("contains only the release allowlist", () => {
-    expect(packageFiles).toEqual(
-      expect.arrayContaining(["dist/cli.js", "LICENSE", "package.json", "README.md", "SECURITY.md"]),
-    );
-    expect(
-      packageFiles.every(
-        (path) => path.startsWith("dist/") || ["LICENSE", "package.json", "README.md", "SECURITY.md"].includes(path),
-      ),
-    ).toBe(true);
-  });
-
-  it("does not publish source, tests, fixtures, environment files, credentials, or design work", () => {
-    const prohibitedPath =
-      /(^|\/)(?:src|source|sources|test|tests|fixtures|credentials|docs|\.env(?:\.|$)|\.superpowers)(?:\/|$)/iu;
-    expect(packageFiles.some((path) => prohibitedPath.test(path))).toBe(false);
+  it("satisfies the shared strict and sensitive-content policy", () => {
+    expect(inspectPackagePaths(packageFiles)).toEqual([]);
   });
 
   it("does not embed TypeScript sources in source maps", async () => {
@@ -54,7 +43,7 @@ describe("published package", () => {
       const parsed = JSON.parse(await readFile(resolve(repositoryRoot, sourceMap), "utf8")) as {
         sourcesContent?: unknown[];
       };
-      expect(parsed.sourcesContent ?? []).toHaveLength(0);
+      expect(inspectSourceMap(sourceMap, parsed)).toEqual([]);
     }
   });
 

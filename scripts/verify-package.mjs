@@ -4,9 +4,9 @@ import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { inspectPackagePaths, inspectSourceMap } from "./package-policy.mjs";
+
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const requiredFiles = new Set(["dist/cli.js", "LICENSE", "package.json", "README.md", "SECURITY.md"]);
-const allowedRootFiles = new Set(["LICENSE", "package.json", "README.md", "SECURITY.md"]);
 
 const output = execFileSync("npm", ["pack", "--json", "--dry-run", "--ignore-scripts"], {
   cwd: repositoryRoot,
@@ -19,14 +19,8 @@ if (!Array.isArray(packResults) || packResults.length !== 1 || !Array.isArray(pa
 }
 
 const packageFiles = packResults[0].files.map((file) => String(file.path).replaceAll("\\", "/")).sort();
-for (const requiredFile of requiredFiles) {
-  if (!packageFiles.includes(requiredFile)) fail(`The package is missing ${requiredFile}.`);
-}
-for (const packageFile of packageFiles) {
-  if (!packageFile.startsWith("dist/") && !allowedRootFiles.has(packageFile)) {
-    fail(`The package contains disallowed file ${packageFile}.`);
-  }
-}
+const pathErrors = inspectPackagePaths(packageFiles);
+if (pathErrors.length > 0) fail(pathErrors.join("\n"));
 
 const packageJson = JSON.parse(await readFile(resolve(repositoryRoot, "package.json"), "utf8"));
 if (packageJson.name !== "@themochiapp/cli") fail("Unexpected package name.");
@@ -39,9 +33,8 @@ if (!executable.startsWith("#!/usr/bin/env node\n")) fail("dist/cli.js is missin
 
 for (const packageFile of packageFiles.filter((path) => path.endsWith(".map"))) {
   const sourceMap = JSON.parse(await readFile(resolve(repositoryRoot, packageFile), "utf8"));
-  if (Array.isArray(sourceMap.sourcesContent) && sourceMap.sourcesContent.length > 0) {
-    fail(`${packageFile} embeds source content.`);
-  }
+  const sourceMapErrors = inspectSourceMap(packageFile, sourceMap);
+  if (sourceMapErrors.length > 0) fail(sourceMapErrors.join("\n"));
 }
 
 process.stdout.write(`Verified ${packageFiles.length} package files.\n`);

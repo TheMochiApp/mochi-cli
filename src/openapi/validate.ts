@@ -3,6 +3,8 @@ import { READ_OPERATIONS, type ReadOperationKey } from "../commands/registry.js"
 import type { OpenApiDocument } from "./types.js";
 
 export interface ReadOperationsValidation {
+  openapiVersion: string;
+  apiVersion: string;
   operationCount: number;
 }
 
@@ -20,7 +22,11 @@ export function validateReadOperations(value: unknown): ReadOperationsValidation
       throw drift(operationKey, "required scopes changed");
     }
   }
-  return { operationCount: Object.keys(READ_OPERATIONS).length };
+  return {
+    openapiVersion: document.openapi,
+    apiVersion: document.info.version,
+    operationCount: Object.keys(READ_OPERATIONS).length,
+  };
 }
 
 export function decodeOpenApiDocument(value: unknown): OpenApiDocument {

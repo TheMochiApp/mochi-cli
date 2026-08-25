@@ -20,9 +20,9 @@ jobs:
       MOCHI_OPENAPI_URL: https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
       - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm

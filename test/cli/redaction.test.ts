@@ -42,7 +42,7 @@ function failingDependencies(kind: "login" | "refresh" | "api" | "logout"): CliR
     }),
     fetchOpenApi: vi.fn(async () => ({ openapi: "3.0.3", info: { version: "1" }, paths: {} })),
     writeOpenApi: vi.fn(async () => undefined),
-    validateOpenApi: vi.fn(() => ({ operationCount: 18 })),
+    validateOpenApi: vi.fn(() => ({ openapiVersion: "3.0.3", apiVersion: "1.0.0", operationCount: 18 })),
     apiGet: vi.fn(async () => {
       if (kind === "refresh") fail();
       if (kind === "api") {
