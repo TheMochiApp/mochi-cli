@@ -41,13 +41,13 @@
 - [ ] Run focused tests in the isolated Docker stack:
 
       docker compose up -d db
-          docker compose run --rm django pytest mochi/public_api/tests/test_agent_docs_contract.py -q
+              docker compose run --rm django pytest mochi/public_api/tests/test_agent_docs_contract.py -q
 
 - [ ] Run formatting, lint, and type checks for the new files:
 
       docker compose run --rm django ruff format --check mochi/public_api/docs_contract.py mochi/public_api/tests/test_agent_docs_contract.py
-          docker compose run --rm django ruff check mochi/public_api/docs_contract.py mochi/public_api/tests/test_agent_docs_contract.py
-          docker compose run --rm django mypy mochi/public_api/docs_contract.py
+              docker compose run --rm django ruff check mochi/public_api/docs_contract.py mochi/public_api/tests/test_agent_docs_contract.py
+              docker compose run --rm django mypy mochi/public_api/docs_contract.py
 
 - [ ] Commit: `test(public-api): add agent guide contract validator`
 
@@ -56,7 +56,7 @@
 **Files:**
 
 - Modify: `docs/public-api/README.md`
-- Modify: `docs/public-api/production-rollout-runbook.md`
+- Modify: `docs/operations/public-api-v1-go-live-runbook.md`
 - Modify: `mochi/public_api/tests/test_gitbook_openapi_workflow.py`
 
 - [ ] Add failing assertions that the README and runbook name `https://docs.themochi.app`, that both identify `/llms.txt` as the default agent entry point, and that the README describes `/llms-full.txt` as a broad-research fallback.
@@ -168,7 +168,7 @@
 - Modify: `mochi/public_api/docs_contract.py`
 - Modify: `mochi/public_api/tests/test_agent_docs_contract.py`
 - Modify: `prd/2026-08-24-mochi-public-api-ai-agent-access.md`
-- Modify: `docs/public-api/production-rollout-runbook.md`
+- Modify: `docs/operations/public-api-v1-go-live-runbook.md`
 
 - [ ] Add a failing repository-level test for `validate_agent_docs_tree(repository_root: Path) -> list[str]`.
 - [ ] Require exactly these intent guides: `connect-ai-agent.md`, `lead-synchronization.md`, `update-lead-safely.md`, `read-business-metrics.md`, `build-bounded-automation.md`, and `diagnose-api-failures.md`.
@@ -184,9 +184,9 @@
 - [ ] Run the complete documentation and OpenAPI suite:
 
       docker compose run --rm django pytest \
-            mochi/public_api/tests/test_agent_docs_contract.py \
-            mochi/public_api/tests/test_openapi_contract.py \
-            mochi/public_api/tests/test_gitbook_openapi_workflow.py -q
+                mochi/public_api/tests/test_agent_docs_contract.py \
+                mochi/public_api/tests/test_openapi_contract.py \
+                mochi/public_api/tests/test_gitbook_openapi_workflow.py -q
 
 - [ ] Verify the generated artifact has no drift:
 

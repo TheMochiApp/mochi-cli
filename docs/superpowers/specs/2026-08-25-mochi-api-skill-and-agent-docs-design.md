@@ -1,6 +1,6 @@
 # Mochi API Skill and Agent-First Documentation Design
 
-**Status:** Ready for review
+**Status:** Approved
 
 **Date:** 2026-08-25
 
