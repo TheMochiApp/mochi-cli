@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { withCredentialLock } from "../../src/storage/lock.js";
 
 const temporaryDirectories: string[] = [];
+const posixTest = process.platform === "win32" ? test.skip : test;
 
 async function leasePath(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "mochi-lock-"));
@@ -44,7 +45,7 @@ afterEach(async () => {
 });
 
 describe("credential directory lease", () => {
-  test("serializes two contenders with an owner-only directory and owner record", async () => {
+  test("serializes two contenders", async () => {
     const path = await leasePath();
     const events: string[] = [];
     let releaseFirst: (() => void) | undefined;
@@ -60,8 +61,6 @@ describe("credential directory lease", () => {
       path,
       async () => {
         events.push("first-start");
-        expect((await stat(path)).mode & 0o777).toBe(0o700);
-        expect((await stat(join(path, "owner"))).mode & 0o777).toBe(0o600);
         firstStarted?.();
         await firstMayFinish;
         events.push("first-finish");
@@ -83,6 +82,15 @@ describe("credential directory lease", () => {
     await Promise.all([first, second]);
     expect(events).toEqual(["first-start", "first-finish", "second-start"]);
     await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  posixTest("creates an owner-only directory and owner record", async () => {
+    const path = await leasePath();
+
+    await withCredentialLock(path, async () => {
+      expect((await stat(path)).mode & 0o777).toBe(0o700);
+      expect((await stat(join(path, "owner"))).mode & 0o777).toBe(0o600);
+    });
   });
 
   test("a live waiter never claims or resurrects a lease released after its preliminary snapshot", async () => {

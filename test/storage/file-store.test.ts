@@ -7,6 +7,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import { createFileStore } from "../../src/storage/file-store.js";
 
 const temporaryDirectories: string[] = [];
+const posixTest = process.platform === "win32" ? test.skip : test;
 
 async function temporaryPath(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "mochi-file-store-"));
@@ -20,7 +21,7 @@ afterEach(async () => {
 });
 
 describe("file credential store", () => {
-  test("creates an owner-only directory and atomically stores an owner-only secret", async () => {
+  posixTest("creates an owner-only directory and atomically stores an owner-only secret", async () => {
     const root = await temporaryPath();
     const configDirectory = join(root, "mochi");
     const credentialsPath = join(configDirectory, "credentials.json");
@@ -34,7 +35,7 @@ describe("file credential store", () => {
     expect(await readdir(configDirectory)).toEqual(["credentials.json"]);
   });
 
-  test("rejects a permissive pre-existing config directory instead of changing it", async () => {
+  posixTest("rejects a permissive pre-existing config directory instead of changing it", async () => {
     const root = await temporaryPath();
     const configDirectory = join(root, "mochi");
     const credentialsPath = join(configDirectory, "credentials.json");
@@ -109,7 +110,7 @@ describe("file credential store", () => {
     expect(await fileStore.get()).toBe("secret-json");
   });
 
-  test("does not suppress a directory fsync failure on POSIX", async () => {
+  posixTest("does not suppress a directory fsync failure on POSIX", async () => {
     const root = await temporaryPath();
     const fileStore = createFileStore(join(root, "mochi", "credentials.json"), {
       platform: "linux",

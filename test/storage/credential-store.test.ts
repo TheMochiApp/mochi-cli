@@ -64,6 +64,7 @@ describe("credential repository", () => {
     const fileStore = await createFallbackStore();
 
     const repository = await createCredentialRepository({
+      platform: "linux",
       keyringLoader: async () => {
         throw new Error("native binding unavailable");
       },
@@ -99,6 +100,7 @@ describe("credential repository", () => {
   test("round-trips and validates every credential field", async () => {
     const fileStore = await createFallbackStore();
     const repository = await createCredentialRepository({
+      platform: "linux",
       keyringLoader: async () => {
         throw new Error("unavailable");
       },
@@ -120,6 +122,7 @@ describe("credential repository", () => {
     const fileStore = await createFallbackStore();
     await fileStore.set(JSON.stringify(malformedBundle));
     const repository = await createCredentialRepository({
+      platform: "linux",
       keyringLoader: async () => {
         throw new Error("unavailable");
       },
@@ -138,6 +141,7 @@ describe("credential repository", () => {
     const stored = JSON.stringify({ ...VALID_BUNDLE, unexpectedSecret: "must-not-be-accepted" });
     await fileStore.set(stored);
     const repository = await createCredentialRepository({
+      platform: "linux",
       keyringLoader: async () => {
         throw new Error("unavailable");
       },
@@ -152,6 +156,7 @@ describe("credential repository", () => {
     const fileStore = await createFallbackStore();
     await fileStore.set(JSON.stringify({ ...VALID_BUNDLE, apiBaseUrl: "https://staging.themochi.app" }));
     const repository = await createCredentialRepository({
+      platform: "linux",
       runtimeConfig: RUNTIME_CONFIG,
       keyringLoader: async () => {
         throw new Error("unavailable");
