@@ -53,12 +53,12 @@ The CLI intentionally has no token flags and reads no access-token or refresh-to
 All Phase D API commands are GET-only. List commands accept repeatable, encoded `--query key=value` options.
 
 ```bash
-mochi leads list --query limit=25 --query status=qualified
+mochi leads list --query page_size=25 --query stage=QUALIFIED
 mochi leads get LEAD_ID
 mochi leads intelligence LEAD_ID
-mochi signals list --query limit=25
-mochi bookings list --query limit=25
-mochi connections list --query limit=25
+mochi signals list --query page_size=25
+mochi bookings list --query page_size=25
+mochi connections list
 ```
 
 Analytics metrics:
@@ -86,7 +86,7 @@ mochi config tags
 Use the bounded escape hatch for an unwrapped read operation. It accepts only a relative same-origin `/v1/` target and always sends GET:
 
 ```bash
-mochi api get '/v1/leads/?limit=10'
+mochi api get '/v1/leads/?page_size=10'
 ```
 
 Absolute URLs, alternate hosts, protocol-relative targets, path traversal, and non-GET methods are rejected before credentials are loaded.
