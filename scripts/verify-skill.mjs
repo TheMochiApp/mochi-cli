@@ -1,12 +1,15 @@
 import { access, readFile, readdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const expectedReferences = ["authentication.md", "docs-discovery.md", "integration-safety.md"];
 const forbiddenPatterns = [
   [/\/v1\//u, "copied API path"],
-  [/operation[_-]?id/iu, "copied operation identifier"],
+  [
+    /(?:operation[_-]?id|\b(?:get|post|put|patch|delete)_[a-z0-9]+(?:_[a-z0-9]+){2,}\b)/iu,
+    "copied operation identifier",
+  ],
   [/\?[a-z0-9_-]+=/iu, "query-parameter example"],
   [/"[a-z][a-z0-9_]*"\s*:/iu, "JSON payload example"],
   [/mochi_sk_(?:live|test)_/iu, "API key example"],
@@ -41,6 +44,24 @@ function parseFrontmatter(content) {
   return fields;
 }
 
+async function collectSkillFiles(skillRoot) {
+  const files = [];
+  const errors = [];
+
+  async function visit(directory) {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const entryPath = join(directory, entry.name);
+      const relativePath = relative(skillRoot, entryPath).replaceAll("\\", "/");
+      if (entry.isDirectory()) await visit(entryPath);
+      else if (entry.isFile()) files.push(relativePath);
+      else errors.push(`Unsupported skill entry: ${relativePath}.`);
+    }
+  }
+
+  await visit(skillRoot);
+  return { files: files.sort(), errors };
+}
+
 export async function inspectSkillRepository(repositoryRoot) {
   const errors = [];
   const skillsRoot = resolve(repositoryRoot, "skills");
@@ -58,10 +79,16 @@ export async function inspectSkillRepository(repositoryRoot) {
   }
 
   const expectedFiles = ["SKILL.md", "agents/openai.yaml", ...expectedReferences.map((name) => `references/${name}`)];
+  const collected = await collectSkillFiles(skillRoot);
+  errors.push(...collected.errors);
+  for (const relativePath of collected.files) {
+    if (!expectedFiles.includes(relativePath)) errors.push(`Unexpected skill file: ${relativePath}.`);
+  }
   for (const relativePath of expectedFiles) {
     if (!(await exists(resolve(skillRoot, relativePath)))) errors.push(`Missing skill file: ${relativePath}.`);
   }
-  if (errors.some((error) => error.startsWith("Missing skill file:"))) return errors.sort();
+  const availableFiles = new Set(collected.files);
+  if (!availableFiles.has("SKILL.md")) return errors.sort();
 
   const entrypoint = await readFile(resolve(skillRoot, "SKILL.md"), "utf8");
   const frontmatter = parseFrontmatter(entrypoint);
@@ -80,14 +107,16 @@ export async function inspectSkillRepository(repositoryRoot) {
   for (const referenceName of expectedReferences) {
     const link = `references/${referenceName}`;
     if (entrypoint.split(link).length - 1 !== 1) errors.push(`${link} must be linked exactly once from SKILL.md.`);
-    const reference = await readFile(resolve(skillRoot, "references", referenceName), "utf8");
+    const referencePath = `references/${referenceName}`;
+    if (!availableFiles.has(referencePath)) continue;
+    const reference = await readFile(resolve(skillRoot, referencePath), "utf8");
     if (/\]\((?:\.\.\/)?references\//u.test(reference)) {
       errors.push(`${referenceName} must not create a nested reference chain.`);
     }
   }
 
   const files = await Promise.all(
-    expectedFiles.map(async (relativePath) => ({
+    collected.files.map(async (relativePath) => ({
       relativePath,
       content: await readFile(resolve(skillRoot, relativePath), "utf8"),
     })),
@@ -99,11 +128,13 @@ export async function inspectSkillRepository(repositoryRoot) {
     }
   }
 
-  const metadata = await readFile(resolve(skillRoot, "agents/openai.yaml"), "utf8");
-  if (!metadata.includes('display_name: "Mochi API"')) errors.push("OpenAI metadata display name is missing.");
-  if (!metadata.includes("$mochi-api")) errors.push("OpenAI default prompt must explicitly invoke $mochi-api.");
-  if (metadata.includes("allow_implicit_invocation: false"))
-    errors.push("Implicit skill discovery must remain enabled.");
+  if (availableFiles.has("agents/openai.yaml")) {
+    const metadata = await readFile(resolve(skillRoot, "agents/openai.yaml"), "utf8");
+    if (!metadata.includes('display_name: "Mochi API"')) errors.push("OpenAI metadata display name is missing.");
+    if (!metadata.includes("$mochi-api")) errors.push("OpenAI default prompt must explicitly invoke $mochi-api.");
+    if (metadata.includes("allow_implicit_invocation: false"))
+      errors.push("Implicit skill discovery must remain enabled.");
+  }
 
   return errors.sort();
 }

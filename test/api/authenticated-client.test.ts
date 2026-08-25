@@ -16,7 +16,7 @@ function bundle(overrides: Partial<CredentialBundle> = {}): CredentialBundle {
   return {
     accessToken: "access-old",
     refreshToken: "refresh-old",
-    accessExpiresAt: "2026-08-25T13:00:00.000Z",
+    accessExpiresAt: "2099-01-01T00:00:00.000Z",
     scopes: ["leads:read"],
     resource: PUBLIC_API_RESOURCE,
     clientId: "client-id",

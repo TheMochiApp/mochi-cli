@@ -1,7 +1,10 @@
-import { access, readFile, readdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { access, cp, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
 import { describe, expect, test } from "vitest";
+
+import { inspectSkillRepository } from "../../scripts/verify-skill.mjs";
 
 const repositoryRoot = resolve(import.meta.dirname, "../..");
 const skillRoot = resolve(repositoryRoot, "skills/mochi-api");
@@ -9,12 +12,29 @@ const skillPath = resolve(skillRoot, "SKILL.md");
 const referenceNames = ["authentication.md", "docs-discovery.md", "integration-safety.md"];
 
 async function skillFiles(): Promise<Array<{ path: string; content: string }>> {
-  const paths = [
-    skillPath,
-    resolve(skillRoot, "agents/openai.yaml"),
-    ...referenceNames.map((name) => resolve(skillRoot, "references", name)),
-  ];
+  const paths: string[] = [];
+  async function visit(directory: string): Promise<void> {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name);
+      if (entry.isDirectory()) await visit(path);
+      else if (entry.isFile()) paths.push(path);
+    }
+  }
+  await visit(skillRoot);
   return Promise.all(paths.map(async (path) => ({ path, content: await readFile(path, "utf8") })));
+}
+
+async function withRepositoryCopy(run: (repositoryCopy: string) => Promise<void>): Promise<void> {
+  const repositoryCopy = await mkdtemp(join(tmpdir(), "mochi-skill-contract-"));
+  try {
+    await mkdir(resolve(repositoryCopy, "skills"));
+    await cp(resolve(repositoryRoot, "skills/mochi-api"), resolve(repositoryCopy, "skills/mochi-api"), {
+      recursive: true,
+    });
+    await run(repositoryCopy);
+  } finally {
+    await rm(repositoryCopy, { recursive: true, force: true });
+  }
 }
 
 describe("mochi-api skill structure", () => {
@@ -45,6 +65,7 @@ describe("mochi-api skill structure", () => {
 
     expect(combined).not.toMatch(/\/v1\//);
     expect(combined).not.toMatch(/operation[_-]?id/i);
+    expect(combined).not.toMatch(/\b(?:get|post|put|patch|delete)_[a-z0-9]+(?:_[a-z0-9]+){2,}\b/i);
     expect(combined).not.toMatch(/\?[a-z0-9_-]+=/i);
     expect(combined).not.toMatch(/"[a-z][a-z0-9_]*"\s*:/i);
     expect(combined).not.toMatch(/mochi_sk_(?:live|test)_/i);
@@ -55,6 +76,18 @@ describe("mochi-api skill structure", () => {
       /mochi\s+(?:api|automations?|flows?|leads?)\s+(?:create|delete|patch|post|run|send|update)/i,
     );
     expect(combined).not.toMatch(/\b\d+\s+(?:requests?|seconds?|minutes?|hours?)\b/i);
+  });
+
+  test("rejects unexpected skill files and scans real operation identifier shapes", async () => {
+    await withRepositoryCopy(async (repositoryCopy) => {
+      const skillCopy = resolve(repositoryCopy, "skills/mochi-api");
+      await writeFile(resolve(skillCopy, "references/endpoints.md"), "# Copied endpoints\n\nget_public_leads_list\n");
+
+      const errors = await inspectSkillRepository(repositoryCopy);
+
+      expect(errors).toContain("Unexpected skill file: references/endpoints.md.");
+      expect(errors).toContain("references/endpoints.md contains forbidden copied operation identifier.");
+    });
   });
 
   test("keeps references one level deep", async () => {

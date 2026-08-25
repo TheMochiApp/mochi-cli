@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
+import { skillInstallerInvocation } from "../../scripts/install-skill-smoke.mjs";
 import { inspectSkillRepository } from "../../scripts/verify-skill.mjs";
 
 interface PackFile {
@@ -17,6 +18,11 @@ interface PackResult {
 const repositoryRoot = resolve(import.meta.dirname, "../..");
 
 describe("skill distribution", () => {
+  test("uses a shell-backed npx.cmd invocation on Windows only", () => {
+    expect(skillInstallerInvocation("win32")).toEqual({ executable: "npx.cmd", shell: true });
+    expect(skillInstallerInvocation("linux")).toEqual({ executable: "npx", shell: false });
+  });
+
   test("passes the deterministic repository validator", async () => {
     await expect(inspectSkillRepository(repositoryRoot)).resolves.toEqual([]);
   });
@@ -30,7 +36,7 @@ describe("skill distribution", () => {
 
     expect(output).toContain("Found 1 skill");
     expect(output).toContain("mochi-api");
-  });
+  }, 30_000);
 
   test("skill files remain outside the npm release tarball", () => {
     const output = execFileSync("npm", ["pack", "--json", "--dry-run", "--ignore-scripts"], {

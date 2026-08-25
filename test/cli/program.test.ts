@@ -91,7 +91,7 @@ describe("CLI command composition", () => {
           "connections list",
           "api get",
         ],
-        docsUrl: "https://mochi-9.gitbook.io/mochi-api/",
+        docsUrl: "https://docs.themochi.app/",
       },
     });
   });

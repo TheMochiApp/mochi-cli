@@ -12,7 +12,7 @@ import { addAuthCommands } from "./commands/auth.js";
 import { addOpenApiCommands } from "./commands/openapi.js";
 import { addReadCommands } from "./commands/read.js";
 
-const DOCS_URL = "https://mochi-9.gitbook.io/mochi-api/";
+const DOCS_URL = "https://docs.themochi.app/";
 const HELP_DATA = {
   commands: [
     "auth login",

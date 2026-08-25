@@ -38,6 +38,15 @@ describe("live documentation discovery", () => {
     expect(() => parseDiscoveryLinks(discoveryIndex("https://evil.example"), DOCS_INDEX_URL)).toThrow("same origin");
   });
 
+  test("requires exactly one canonical OpenAPI link in llms.txt", () => {
+    expect(() => parseDiscoveryLinks(discoveryIndex().replace(`- [OpenAPI](${OPENAPI_URL})`, ""))).toThrow(
+      "exactly one canonical OpenAPI link",
+    );
+    expect(() => parseDiscoveryLinks(`${discoveryIndex()}\n- [OpenAPI duplicate](${OPENAPI_URL})`)).toThrow(
+      "exactly one canonical OpenAPI link",
+    );
+  });
+
   test("checks every guide and the generated contract without credentials", async () => {
     const requested: string[] = [];
     const fetchImpl: typeof fetch = async (input, init) => {
@@ -60,5 +69,38 @@ describe("live documentation discovery", () => {
       ...guideSlugs.map((slug) => `https://docs.themochi.app/${slug}`),
       OPENAPI_URL,
     ]);
+  });
+
+  test("rejects a guide that mentions but does not link the canonical OpenAPI URL", async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url === DOCS_INDEX_URL) return fakeResponse(discoveryIndex());
+      if (url === OPENAPI_URL) {
+        return fakeResponse(JSON.stringify({ openapi: "3.0.3", info: { title: "Mochi Public API" } }));
+      }
+      return fakeResponse(`# Guide\n\nCanonical contract: ${OPENAPI_URL}`);
+    };
+
+    await expect(checkLiveDocs({ fetchImpl })).rejects.toThrow("does not link the canonical OpenAPI artifact");
+  });
+
+  test("aborts a streamed response after the byte limit", async () => {
+    const oversizedChunk = new Uint8Array(2_000_001);
+    let streamCancelled = false;
+    const fetchImpl: typeof fetch = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(oversizedChunk);
+          },
+          cancel() {
+            streamCancelled = true;
+          },
+        }),
+        { status: 200 },
+      );
+
+    await expect(checkLiveDocs({ fetchImpl })).rejects.toThrow("exceeded the response-size limit");
+    expect(streamCancelled).toBe(true);
   });
 });
