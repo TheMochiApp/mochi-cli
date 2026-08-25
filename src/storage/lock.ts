@@ -9,6 +9,8 @@ import { ensureOwnerOnlyDirectory } from "./file-store.js";
 const RETRY_DELAY_MS = 50;
 const ACQUISITION_DEADLINE_MS = 10_000;
 const STALE_AFTER_MS = 60_000;
+const WINDOWS_REMOVE_RETRY_DELAY_MS = 10;
+const WINDOWS_REMOVE_RETRY_LIMIT = 20;
 const OWNER_FILE = "owner";
 
 class LeaseMissingError extends Error {}
@@ -29,11 +31,18 @@ interface LeaseSnapshot {
   ownerInode: bigint | null;
 }
 
+interface ClaimRemovalRuntime {
+  platform: NodeJS.Platform;
+  removeDirectory: (path: string) => Promise<void>;
+  sleep: (milliseconds: number) => Promise<void>;
+}
+
 export interface CredentialLockOptions {
   now?: () => number;
   nonce?: () => string;
   sleep?: (milliseconds: number) => Promise<void>;
   renameFile?: (source: string, destination: string) => Promise<void>;
+  removeDirectory?: (path: string) => Promise<void>;
   platform?: NodeJS.Platform;
   afterPreliminaryInspectionForTests?: () => Promise<void>;
 }
@@ -48,11 +57,24 @@ export async function withCredentialLock<Result>(
   const sleep = options.sleep ?? ((milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const renameFile = options.renameFile ?? rename;
   const platform = options.platform ?? process.platform;
+  const claimRemovalRuntime: ClaimRemovalRuntime = {
+    platform,
+    removeDirectory: options.removeDirectory ?? rmdir,
+    sleep,
+  };
   const startedAt = now();
 
   await ensureOwnerOnlyDirectory(dirname(lockPath), platform);
   while (
-    !(await tryAcquireLease(lockPath, nonce, now, platform, renameFile, options.afterPreliminaryInspectionForTests))
+    !(await tryAcquireLease(
+      lockPath,
+      nonce,
+      now,
+      platform,
+      renameFile,
+      claimRemovalRuntime,
+      options.afterPreliminaryInspectionForTests,
+    ))
   ) {
     if (now() - startedAt >= ACQUISITION_DEADLINE_MS) {
       throw new CliError(
@@ -67,7 +89,7 @@ export async function withCredentialLock<Result>(
   try {
     return await callback();
   } finally {
-    await releaseLease(lockPath, nonce, platform, renameFile);
+    await releaseLease(lockPath, nonce, platform, renameFile, claimRemovalRuntime);
   }
 }
 
@@ -77,9 +99,10 @@ async function tryAcquireLease(
   now: () => number,
   platform: NodeJS.Platform,
   renameFile: (source: string, destination: string) => Promise<void>,
+  claimRemovalRuntime: ClaimRemovalRuntime,
   afterPreliminaryInspection: (() => Promise<void>) | undefined,
 ): Promise<boolean> {
-  if (await recoverClaims(lockPath, now(), platform, renameFile)) {
+  if (await recoverClaims(lockPath, now(), platform, renameFile, claimRemovalRuntime)) {
     return false;
   }
 
@@ -89,7 +112,7 @@ async function tryAcquireLease(
     if (!isFileError(error, "EEXIST")) {
       throw lockFailure("Could not create the Mochi credential lease.");
     }
-    await resolveFixedLease(lockPath, now(), platform, renameFile, afterPreliminaryInspection);
+    await resolveFixedLease(lockPath, now(), platform, renameFile, claimRemovalRuntime, afterPreliminaryInspection);
     return false;
   }
 
@@ -101,18 +124,18 @@ async function tryAcquireLease(
     }
 
     if ((await listClaimPaths(lockPath)).length > 0) {
-      await withdrawOwnedLease(lockPath, nonce, platform, renameFile);
+      await withdrawOwnedLease(lockPath, nonce, platform, renameFile, claimRemovalRuntime);
       return false;
     }
 
     const revalidated = await inspectLease(lockPath, platform);
     if (revalidated.record?.nonce !== nonce) {
-      await withdrawOwnedLease(lockPath, nonce, platform, renameFile);
+      await withdrawOwnedLease(lockPath, nonce, platform, renameFile, claimRemovalRuntime);
       return false;
     }
     return true;
   } catch (error) {
-    await withdrawOwnedLease(lockPath, nonce, platform, renameFile).catch(() => undefined);
+    await withdrawOwnedLease(lockPath, nonce, platform, renameFile, claimRemovalRuntime).catch(() => undefined);
     throw error;
   }
 }
@@ -122,6 +145,7 @@ async function resolveFixedLease(
   currentTime: number,
   platform: NodeJS.Platform,
   renameFile: (source: string, destination: string) => Promise<void>,
+  claimRemovalRuntime: ClaimRemovalRuntime,
   afterPreliminaryInspection: (() => Promise<void>) | undefined,
 ): Promise<void> {
   let observed: LeaseSnapshot;
@@ -158,10 +182,10 @@ async function resolveFixedLease(
     throw error;
   }
   if (sameLease(observed, claimed) && isStale(claimed, currentTime)) {
-    await removeClaim(claimPath, claimed);
+    await removeClaim(claimPath, claimed, claimRemovalRuntime);
     return;
   }
-  await restoreClaim(claimPath, lockPath, claimed, platform);
+  await restoreClaim(claimPath, lockPath, claimed, platform, claimRemovalRuntime);
 }
 
 async function releaseLease(
@@ -169,6 +193,7 @@ async function releaseLease(
   nonce: string,
   platform: NodeJS.Platform,
   renameFile: (source: string, destination: string) => Promise<void>,
+  claimRemovalRuntime: ClaimRemovalRuntime,
 ): Promise<void> {
   const claimPath = uniqueClaimPath(lockPath);
   try {
@@ -177,7 +202,7 @@ async function releaseLease(
     if (!isFileError(error, "ENOENT")) {
       throw lockFailure("Could not atomically claim the Mochi credential lease for release.");
     }
-    await removeOwnedClaims(lockPath, nonce, platform);
+    await removeOwnedClaims(lockPath, nonce, platform, claimRemovalRuntime);
     return;
   }
 
@@ -186,16 +211,16 @@ async function releaseLease(
     claimed = await inspectLease(claimPath, platform);
   } catch (error) {
     if (error instanceof LeaseMissingError) {
-      await removeOwnedClaims(lockPath, nonce, platform);
+      await removeOwnedClaims(lockPath, nonce, platform, claimRemovalRuntime);
       return;
     }
     throw error;
   }
   if (claimed.record?.nonce === nonce) {
-    await removeClaim(claimPath, claimed);
+    await removeClaim(claimPath, claimed, claimRemovalRuntime);
   } else {
-    await restoreClaim(claimPath, lockPath, claimed, platform);
-    await removeOwnedClaims(lockPath, nonce, platform);
+    await restoreClaim(claimPath, lockPath, claimed, platform, claimRemovalRuntime);
+    await removeOwnedClaims(lockPath, nonce, platform, claimRemovalRuntime);
   }
 }
 
@@ -204,6 +229,7 @@ async function withdrawOwnedLease(
   nonce: string,
   platform: NodeJS.Platform,
   renameFile: (source: string, destination: string) => Promise<void>,
+  claimRemovalRuntime: ClaimRemovalRuntime,
 ): Promise<void> {
   const claimPath = uniqueClaimPath(lockPath);
   try {
@@ -212,7 +238,7 @@ async function withdrawOwnedLease(
     if (!isFileError(error, "ENOENT")) {
       throw lockFailure("Could not withdraw the Mochi credential lease.");
     }
-    await removeOwnedClaims(lockPath, nonce, platform);
+    await removeOwnedClaims(lockPath, nonce, platform, claimRemovalRuntime);
     return;
   }
 
@@ -221,16 +247,16 @@ async function withdrawOwnedLease(
     claimed = await inspectLease(claimPath, platform);
   } catch (error) {
     if (error instanceof LeaseMissingError) {
-      await removeOwnedClaims(lockPath, nonce, platform);
+      await removeOwnedClaims(lockPath, nonce, platform, claimRemovalRuntime);
       return;
     }
     throw error;
   }
   if (claimed.record?.nonce === nonce) {
-    await removeClaim(claimPath, claimed);
+    await removeClaim(claimPath, claimed, claimRemovalRuntime);
   } else {
-    await restoreClaim(claimPath, lockPath, claimed, platform);
-    await removeOwnedClaims(lockPath, nonce, platform);
+    await restoreClaim(claimPath, lockPath, claimed, platform, claimRemovalRuntime);
+    await removeOwnedClaims(lockPath, nonce, platform, claimRemovalRuntime);
   }
 }
 
@@ -239,6 +265,7 @@ async function recoverClaims(
   currentTime: number,
   platform: NodeJS.Platform,
   renameFile: (source: string, destination: string) => Promise<void>,
+  claimRemovalRuntime: ClaimRemovalRuntime,
 ): Promise<boolean> {
   let activeClaim = false;
   for (const claimPath of await listClaimPaths(lockPath)) {
@@ -275,15 +302,20 @@ async function recoverClaims(
       throw error;
     }
     if (isStale(recovered, currentTime)) {
-      await removeClaim(recoveryPath, recovered);
-    } else if (!(await restoreClaim(recoveryPath, lockPath, recovered, platform))) {
+      await removeClaim(recoveryPath, recovered, claimRemovalRuntime);
+    } else if (!(await restoreClaim(recoveryPath, lockPath, recovered, platform, claimRemovalRuntime))) {
       activeClaim = true;
     }
   }
   return activeClaim || (await listClaimPaths(lockPath)).length > 0;
 }
 
-async function removeOwnedClaims(lockPath: string, nonce: string, platform: NodeJS.Platform): Promise<void> {
+async function removeOwnedClaims(
+  lockPath: string,
+  nonce: string,
+  platform: NodeJS.Platform,
+  claimRemovalRuntime: ClaimRemovalRuntime,
+): Promise<void> {
   for (const claimPath of await listClaimPaths(lockPath)) {
     let claim: LeaseSnapshot;
     try {
@@ -295,7 +327,7 @@ async function removeOwnedClaims(lockPath: string, nonce: string, platform: Node
       throw error;
     }
     if (claim.record?.nonce === nonce) {
-      await removeClaim(claimPath, claim);
+      await removeClaim(claimPath, claim, claimRemovalRuntime);
     }
   }
 }
@@ -305,6 +337,7 @@ async function restoreClaim(
   lockPath: string,
   snapshot: LeaseSnapshot,
   platform: NodeJS.Platform,
+  claimRemovalRuntime: ClaimRemovalRuntime,
 ): Promise<boolean> {
   try {
     await mkdir(lockPath, { mode: 0o700 });
@@ -334,7 +367,7 @@ async function restoreClaim(
           throw claimError;
         }
         if (originalClaim.contents === snapshot.contents) {
-          await removeClaim(claimPath, originalClaim);
+          await removeClaim(claimPath, originalClaim, claimRemovalRuntime);
           return false;
         }
       }
@@ -343,7 +376,7 @@ async function restoreClaim(
     if (restored.contents !== snapshot.contents) {
       throw unsafeLock();
     }
-    await removeClaim(claimPath, snapshot);
+    await removeClaim(claimPath, snapshot, claimRemovalRuntime);
     return true;
   } catch (error) {
     await removeEmptyOrOwnedDirectory(lockPath, snapshot.contents, platform).catch(() => undefined);
@@ -351,7 +384,7 @@ async function restoreClaim(
   }
 }
 
-async function removeClaim(claimPath: string, snapshot: LeaseSnapshot): Promise<void> {
+async function removeClaim(claimPath: string, snapshot: LeaseSnapshot, runtime: ClaimRemovalRuntime): Promise<void> {
   let entries: string[];
   try {
     entries = await readdir(claimPath);
@@ -372,11 +405,24 @@ async function removeClaim(claimPath: string, snapshot: LeaseSnapshot): Promise<
       }
     });
   }
-  await rmdir(claimPath).catch((error: unknown) => {
-    if (!isFileError(error, "ENOENT")) {
-      throw error;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await runtime.removeDirectory(claimPath);
+      return;
+    } catch (error) {
+      if (isFileError(error, "ENOENT")) {
+        return;
+      }
+      if (
+        runtime.platform !== "win32" ||
+        attempt >= WINDOWS_REMOVE_RETRY_LIMIT ||
+        !isTransientWindowsRemovalError(error)
+      ) {
+        throw error;
+      }
+      await runtime.sleep(WINDOWS_REMOVE_RETRY_DELAY_MS);
     }
-  });
+  }
 }
 
 async function removeEmptyOrOwnedDirectory(
@@ -595,4 +641,8 @@ function lockFailure(message: string): CliError {
 
 function isFileError(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
+}
+
+function isTransientWindowsRemovalError(error: unknown): boolean {
+  return ["EBUSY", "ENOTEMPTY", "EPERM"].some((code) => isFileError(error, code));
 }

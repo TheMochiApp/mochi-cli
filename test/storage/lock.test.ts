@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rename, stat, symlink, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rmdir, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -302,6 +302,61 @@ describe("credential directory lease", () => {
     });
 
     expect(result).toBe("acquired");
+  });
+
+  test("retries a transient Windows delete-pending directory during release", async () => {
+    const path = await leasePath();
+    let removalAttempts = 0;
+
+    await withCredentialLock(path, async () => undefined, {
+      platform: "win32",
+      removeDirectory: async (directoryPath) => {
+        removalAttempts += 1;
+        if (removalAttempts === 1) {
+          throw Object.assign(new Error("delete pending"), { code: "ENOTEMPTY" });
+        }
+        await rmdir(directoryPath);
+      },
+      sleep: async () => undefined,
+    });
+
+    expect(removalAttempts).toBe(2);
+    await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("bounds repeated Windows delete-pending retries", async () => {
+    const path = await leasePath();
+    let removalAttempts = 0;
+
+    await expect(
+      withCredentialLock(path, async () => undefined, {
+        platform: "win32",
+        removeDirectory: async () => {
+          removalAttempts += 1;
+          throw Object.assign(new Error("still delete pending"), { code: "ENOTEMPTY" });
+        },
+        sleep: async () => undefined,
+      }),
+    ).rejects.toMatchObject({ code: "ENOTEMPTY" });
+
+    expect(removalAttempts).toBe(21);
+  });
+
+  test("does not retry a POSIX non-empty directory removal", async () => {
+    const path = await leasePath();
+    let removalAttempts = 0;
+
+    await expect(
+      withCredentialLock(path, async () => undefined, {
+        platform: "linux",
+        removeDirectory: async () => {
+          removalAttempts += 1;
+          throw Object.assign(new Error("not transient on POSIX"), { code: "ENOTEMPTY" });
+        },
+      }),
+    ).rejects.toMatchObject({ code: "ENOTEMPTY" });
+
+    expect(removalAttempts).toBe(1);
   });
 
   test("rejects a symlinked lease directory without touching its target", async () => {
