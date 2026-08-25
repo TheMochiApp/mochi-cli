@@ -40,14 +40,18 @@
 - [ ] Reject obvious credential examples such as literal bearer/JWT/API-key values while allowing placeholders such as `$MOCHI_API_KEY` and `YOUR_API_KEY`.
 - [ ] Run focused tests in the isolated Docker stack:
 
-      docker compose up -d db
-              docker compose run --rm django pytest mochi/public_api/tests/test_agent_docs_contract.py -q
+  ```bash
+  docker compose up -d db
+  docker compose run --rm django pytest mochi/public_api/tests/test_agent_docs_contract.py -q
+  ```
 
 - [ ] Run formatting, lint, and type checks for the new files:
 
-      docker compose run --rm django ruff format --check mochi/public_api/docs_contract.py mochi/public_api/tests/test_agent_docs_contract.py
-              docker compose run --rm django ruff check mochi/public_api/docs_contract.py mochi/public_api/tests/test_agent_docs_contract.py
-              docker compose run --rm django mypy mochi/public_api/docs_contract.py
+  ```bash
+  docker compose run --rm django ruff format --check mochi/public_api/docs_contract.py mochi/public_api/tests/test_agent_docs_contract.py
+  docker compose run --rm django ruff check mochi/public_api/docs_contract.py mochi/public_api/tests/test_agent_docs_contract.py
+  docker compose run --rm django mypy mochi/public_api/docs_contract.py
+  ```
 
 - [ ] Commit: `test(public-api): add agent guide contract validator`
 
@@ -66,7 +70,9 @@
 - [ ] Keep domain activation explicitly outside this code PR and leave every production feature flag unchanged.
 - [ ] Run:
 
-      docker compose run --rm django pytest mochi/public_api/tests/test_gitbook_openapi_workflow.py -q
+  ```bash
+  docker compose run --rm django pytest mochi/public_api/tests/test_gitbook_openapi_workflow.py -q
+  ```
 
 - [ ] Commit: `docs(public-api): define canonical agent discovery`
 
@@ -183,14 +189,18 @@
 
 - [ ] Run the complete documentation and OpenAPI suite:
 
-      docker compose run --rm django pytest \
-                mochi/public_api/tests/test_agent_docs_contract.py \
-                mochi/public_api/tests/test_openapi_contract.py \
-                mochi/public_api/tests/test_gitbook_openapi_workflow.py -q
+  ```bash
+  docker compose run --rm django pytest \
+    mochi/public_api/tests/test_agent_docs_contract.py \
+    mochi/public_api/tests/test_openapi_contract.py \
+    mochi/public_api/tests/test_gitbook_openapi_workflow.py -q
+  ```
 
 - [ ] Verify the generated artifact has no drift:
 
-      docker compose run --rm django python manage.py generate_public_api_openapi --check
+  ```bash
+  docker compose run --rm django python manage.py generate_public_api_openapi --check
+  ```
 
 - [ ] Run formatting, lint, and type checking on every changed Python file.
 - [ ] Inspect `git diff --check`, the full branch diff, and `git status --short`.

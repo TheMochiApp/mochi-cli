@@ -53,11 +53,13 @@
 
 - [ ] Scaffold with the repository-independent skill creator:
 
-      python3 /Users/maximossapranidis/.codex/skills/.system/skill-creator/scripts/init_skill.py \
-                mochi-api --path skills --resources references \
-                --interface display_name='Mochi API' \
-                --interface short_description='Connect agents and integrations to Mochi safely.' \
-                --interface default_prompt='Use $mochi-api to choose authentication, read current Mochi docs, and complete this integration safely.'
+  ```bash
+  python3 /Users/maximossapranidis/.codex/skills/.system/skill-creator/scripts/init_skill.py \
+    mochi-api --path skills --resources references \
+    --interface display_name='Mochi API' \
+    --interface short_description='Connect agents and integrations to Mochi safely.' \
+    --interface default_prompt='Use $mochi-api to choose authentication, read current Mochi docs, and complete this integration safely.'
+  ```
 
 - [ ] Replace the generated entrypoint with a concise router: choose workload/auth, read one direct reference, follow `/llms.txt` → task guide → OpenAPI → installed CLI help, enforce credential/read-only boundaries, and finish with a structured verification report.
 - [ ] In `authentication.md`, explain interactive OAuth CLI, unattended API key, existing MCP, and registered OAuth application journeys. Cover minimum scopes, browser consent, revocation, secret-manager/keychain boundaries, and the prohibition against exposing a credential.
