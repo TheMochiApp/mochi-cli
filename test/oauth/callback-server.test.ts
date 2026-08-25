@@ -244,8 +244,8 @@ describe("browser adapter", () => {
     ["win32" as const, "rundll32", ["url.dll,FileProtocolHandler", "https://use.themochi.app/authorize"]],
   ])("uses argument-array invocation on %s", async (platform, command, args) => {
     const child = {
-      once: vi.fn((event: string, callback: (value?: Error) => void) => {
-        if (event === "spawn") callback();
+      once: vi.fn((event: string, callback: (value: Error | number | null) => void) => {
+        if (event === "close") callback(0);
         return child;
       }),
     };
@@ -253,13 +253,12 @@ describe("browser adapter", () => {
 
     await expect(openBrowser("https://use.themochi.app/authorize", { platform, spawn })).resolves.toBeNull();
     expect(spawn).toHaveBeenCalledWith(command, args, { stdio: "ignore", windowsHide: true });
-    expect(child.once).not.toHaveBeenCalledWith("close", expect.any(Function));
   });
 
   test("returns the authorization URL when opening fails", async () => {
     const authorizationUrl = "https://use.themochi.app/authorize?state=safe";
     const child = {
-      once: vi.fn((event: string, callback: (value?: Error) => void) => {
+      once: vi.fn((event: string, callback: (value: Error | number | null) => void) => {
         if (event === "error") callback(new Error("failed"));
         return child;
       }),
@@ -267,5 +266,40 @@ describe("browser adapter", () => {
     const spawn = vi.fn(() => child);
 
     await expect(openBrowser(authorizationUrl, { platform: "linux", spawn })).resolves.toBe(authorizationUrl);
+  });
+
+  test("returns the authorization URL when the browser helper exits nonzero", async () => {
+    const authorizationUrl = "https://use.themochi.app/authorize?state=safe";
+    const child = {
+      once: vi.fn((event: string, callback: (value: Error | number | null) => void) => {
+        if (event === "close") callback(1);
+        return child;
+      }),
+    };
+
+    await expect(openBrowser(authorizationUrl, { platform: "linux", spawn: vi.fn(() => child) })).resolves.toBe(
+      authorizationUrl,
+    );
+  });
+
+  test.each([
+    ["error then close", ["error", "close"] as const, "url"],
+    ["close then error", ["close", "error"] as const, "success"],
+  ])("settles once for %s", async (_name, eventOrder, expected) => {
+    const authorizationUrl = "https://use.themochi.app/authorize?state=safe";
+    const listeners = new Map<string, (value: Error | number | null) => void>();
+    const child = {
+      once: vi.fn((event: string, callback: (value: Error | number | null) => void) => {
+        listeners.set(event, callback);
+        return child;
+      }),
+    };
+    const result = openBrowser(authorizationUrl, { platform: "linux", spawn: vi.fn(() => child) });
+
+    for (const event of eventOrder) {
+      listeners.get(event)?.(event === "error" ? new Error("failed") : 0);
+    }
+
+    await expect(result).resolves.toBe(expected === "url" ? authorizationUrl : null);
   });
 });

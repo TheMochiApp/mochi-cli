@@ -1,7 +1,7 @@
 import { spawn as nodeSpawn } from "node:child_process";
 
 export interface BrowserProcess {
-  once(event: "error" | "spawn", listener: (value?: Error) => void): BrowserProcess;
+  once(event: "error" | "close", listener: (value: Error | number | null) => void): BrowserProcess;
 }
 
 export type BrowserSpawn = (
@@ -32,7 +32,7 @@ export async function openBrowser(authorizationUrl: string, options: OpenBrowser
     try {
       const child = spawn(invocation.command, invocation.args, { stdio: "ignore", windowsHide: true });
       child.once("error", () => finish(authorizationUrl));
-      child.once("spawn", () => finish(null));
+      child.once("close", (code) => finish(code === 0 ? null : authorizationUrl));
     } catch {
       finish(authorizationUrl);
     }
