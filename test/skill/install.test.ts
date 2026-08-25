@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, test } from "vitest";
 
@@ -33,9 +34,10 @@ describe("skill distribution", () => {
       encoding: "utf8",
       shell: process.platform === "win32",
     });
+    const normalizedOutput = stripVTControlCharacters(output);
 
-    expect(output).toContain("Found 1 skill");
-    expect(output).toContain("mochi-api");
+    expect(normalizedOutput).toContain("Found 1 skill");
+    expect(normalizedOutput).toContain("mochi-api");
   }, 30_000);
 
   test("skill files remain outside the npm release tarball", () => {
