@@ -1,4 +1,4 @@
-# Mochi Agent CLI Design
+# Mochi CLI Design
 
 **Status:** Approved by the AI-Agent Access PRD and Phase D continuation
 
@@ -35,7 +35,7 @@ installable skill content planned for Phase E.
 
 ## Repository and runtime
 
-The CLI lives in the new public `TheMochiApp/mochi-agent` repository so the
+The CLI lives in the new public `TheMochiApp/mochi-cli` repository so the
 Phase E skill can later be installed from the same trusted source. The npm
 package is `@themochiapp/cli`; its executable is `mochi`.
 

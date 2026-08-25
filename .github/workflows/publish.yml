@@ -24,7 +24,7 @@ jobs:
       - name: Require the canonical public repository
         env:
           RELEASE_REPOSITORY: ${{ github.repository }}
-        run: test "$RELEASE_REPOSITORY" = "TheMochiApp/mochi-agent"
+        run: test "$RELEASE_REPOSITORY" = "TheMochiApp/mochi-cli"
       - name: Check out the requested tag
         uses: actions/checkout@v6
         with:
@@ -83,7 +83,7 @@ jobs:
       - name: Require the canonical public repository
         env:
           RELEASE_REPOSITORY: ${{ github.repository }}
-        run: test "$RELEASE_REPOSITORY" = "TheMochiApp/mochi-agent"
+        run: test "$RELEASE_REPOSITORY" = "TheMochiApp/mochi-cli"
       - name: Download verified npm artifact
         uses: actions/download-artifact@v4
         with:

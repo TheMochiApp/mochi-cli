@@ -68,7 +68,7 @@ describe("dynamic client registration", () => {
       "http://127.0.0.1:48155/callback",
     ]);
     expect(oauthHttp.postJson).toHaveBeenCalledWith(METADATA.registrationEndpoint, {
-      client_name: "Mochi Agent CLI",
+      client_name: "Mochi CLI",
       redirect_uris: LOOPBACK_REDIRECT_URIS,
       token_endpoint_auth_method: "none",
       grant_types: ["authorization_code", "refresh_token"],

@@ -5,6 +5,8 @@ import { describe, expect, test } from "vitest";
 const WORKFLOW_URL = new URL("../../.github/workflows/publish.yml", import.meta.url);
 const RELEASING_URL = new URL("../../RELEASING.md", import.meta.url);
 const GIT_ATTRIBUTES_URL = new URL("../../.gitattributes", import.meta.url);
+const PACKAGE_URL = new URL("../../package.json", import.meta.url);
+const SECURITY_URL = new URL("../../SECURITY.md", import.meta.url);
 
 describe("release control contract", () => {
   test("binds the workflow run ref to the requested release tag", async () => {
@@ -41,5 +43,16 @@ describe("release control contract", () => {
     const attributes = await readFile(GIT_ATTRIBUTES_URL, "utf8");
 
     expect(attributes.trim()).toBe("* text=auto eol=lf");
+  });
+
+  test("binds package and release controls to the canonical mochi-cli repository", async () => {
+    const files = await Promise.all(
+      [WORKFLOW_URL, RELEASING_URL, PACKAGE_URL, SECURITY_URL].map((url) => readFile(url, "utf8")),
+    );
+
+    for (const contents of files) {
+      expect(contents).toContain("TheMochiApp/mochi-cli");
+      expect(contents).not.toContain("TheMochiApp/mochi-agent");
+    }
   });
 });

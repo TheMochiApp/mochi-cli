@@ -5,11 +5,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TheMochiApp/mochi-agent.git"
+    "url": "git+https://github.com/TheMochiApp/mochi-cli.git"
   },
-  "homepage": "https://github.com/TheMochiApp/mochi-agent#readme",
+  "homepage": "https://github.com/TheMochiApp/mochi-cli#readme",
   "bugs": {
-    "url": "https://github.com/TheMochiApp/mochi-agent/issues"
+    "url": "https://github.com/TheMochiApp/mochi-cli/issues"
   },
   "keywords": [
     "mochi",

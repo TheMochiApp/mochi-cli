@@ -26,7 +26,7 @@ export async function ensurePublicClient({
   }
 
   const response = await http.postJson(metadata.registrationEndpoint, {
-    client_name: "Mochi Agent CLI",
+    client_name: "Mochi CLI",
     redirect_uris: LOOPBACK_REDIRECT_URIS,
     token_endpoint_auth_method: "none",
     grant_types: EXPECTED_GRANT_TYPES,

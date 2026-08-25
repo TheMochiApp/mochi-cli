@@ -1,4 +1,4 @@
-# Mochi Agent CLI
+# Mochi CLI
 
 `mochi` is the read-only Mochi Public API client for humans, scripts, and AI agents. It uses direct browser OAuth with PKCE, stores credentials outside prompts and command history, and emits deterministic JSON.
 

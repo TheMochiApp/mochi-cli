@@ -2,7 +2,7 @@
 
 ## Report privately
 
-Use [GitHub's private security advisory form](https://github.com/TheMochiApp/mochi-agent/security/advisories/new) for suspected vulnerabilities in this CLI. Include the affected version, platform, impact, and minimal reproduction. If the form is unavailable, contact Mochi support and ask for a private security-reporting channel before sharing technical details.
+Use [GitHub's private security advisory form](https://github.com/TheMochiApp/mochi-cli/security/advisories/new) for suspected vulnerabilities in this CLI. Include the affected version, platform, impact, and minimal reproduction. If the form is unavailable, contact Mochi support and ask for a private security-reporting channel before sharing technical details.
 
 Do not open a public issue for a vulnerability before it is triaged. Never include access tokens, refresh tokens, authorization codes, PKCE verifiers, credential files, unredacted HTTP headers, customer data, or secrets in GitHub issues, advisory text, chat, terminal transcripts, screenshots, or logs. Redact those values even in a private report; Mochi does not need live credentials to investigate.
 
