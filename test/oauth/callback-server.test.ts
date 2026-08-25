@@ -244,6 +244,7 @@ describe("browser adapter", () => {
     ["win32" as const, "rundll32", ["url.dll,FileProtocolHandler", "https://use.themochi.app/authorize"]],
   ])("uses argument-array invocation on %s", async (platform, command, args) => {
     const child = {
+      unref: vi.fn(() => child),
       once: vi.fn((event: string, callback: (value: Error | number | null) => void) => {
         if (event === "close") callback(0);
         return child;
@@ -253,11 +254,13 @@ describe("browser adapter", () => {
 
     await expect(openBrowser("https://use.themochi.app/authorize", { platform, spawn })).resolves.toBeNull();
     expect(spawn).toHaveBeenCalledWith(command, args, { stdio: "ignore", windowsHide: true });
+    expect(child.unref).toHaveBeenCalledOnce();
   });
 
   test("returns the authorization URL when opening fails", async () => {
     const authorizationUrl = "https://use.themochi.app/authorize?state=safe";
     const child = {
+      unref: vi.fn(() => child),
       once: vi.fn((event: string, callback: (value: Error | number | null) => void) => {
         if (event === "error") callback(new Error("failed"));
         return child;
@@ -271,6 +274,7 @@ describe("browser adapter", () => {
   test("returns the authorization URL when the browser helper exits nonzero", async () => {
     const authorizationUrl = "https://use.themochi.app/authorize?state=safe";
     const child = {
+      unref: vi.fn(() => child),
       once: vi.fn((event: string, callback: (value: Error | number | null) => void) => {
         if (event === "close") callback(1);
         return child;
@@ -289,6 +293,7 @@ describe("browser adapter", () => {
     const authorizationUrl = "https://use.themochi.app/authorize?state=safe";
     const listeners = new Map<string, (value: Error | number | null) => void>();
     const child = {
+      unref: vi.fn(() => child),
       once: vi.fn((event: string, callback: (value: Error | number | null) => void) => {
         listeners.set(event, callback);
         return child;
