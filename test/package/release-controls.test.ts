@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 
 const WORKFLOW_URL = new URL("../../.github/workflows/publish.yml", import.meta.url);
 const RELEASING_URL = new URL("../../RELEASING.md", import.meta.url);
+const GIT_ATTRIBUTES_URL = new URL("../../.gitattributes", import.meta.url);
 
 describe("release control contract", () => {
   test("binds the workflow run ref to the requested release tag", async () => {
@@ -34,5 +35,11 @@ describe("release control contract", () => {
     expect(releasing).toContain("workflow filename `publish.yml`, environment `production`");
     expect(releasing).toContain("Publication is forbidden until the package exists");
     expect(releasing).not.toMatch(/(?:NPM_TOKEN|NODE_AUTH_TOKEN)\s*=/u);
+  });
+
+  test("keeps formatter inputs LF-normalized on Windows checkouts", async () => {
+    const attributes = await readFile(GIT_ATTRIBUTES_URL, "utf8");
+
+    expect(attributes.trim()).toBe("* text=auto eol=lf");
   });
 });
