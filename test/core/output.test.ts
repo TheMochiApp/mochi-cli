@@ -38,4 +38,27 @@ describe("process output", () => {
       write.mockRestore();
     }
   });
+
+  test("redacts nested Error instances before writing a result", () => {
+    const write = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const previousExitCode = process.exitCode;
+    const error = new CliError("AUTH_REQUIRED", "Run mochi auth login.", ExitCode.Authentication, {
+      refreshToken: "super-secret-refresh-token",
+    });
+    error.stack = "super-secret-stack";
+
+    try {
+      writeResult(successJson({ nestedError: error }), ExitCode.Authentication);
+
+      expect(write).toHaveBeenCalledWith('{"ok":true,"data":{"nestedError":"[error]"}}\n');
+      const stdout = String(write.mock.calls[0]?.[0]);
+      expect(stdout).not.toContain("super-secret-refresh-token");
+      expect(stdout).not.toContain("super-secret-stack");
+      expect(stdout).not.toContain("details");
+      expect(stdout).not.toContain("exitCode");
+    } finally {
+      process.exitCode = previousExitCode;
+      write.mockRestore();
+    }
+  });
 });
