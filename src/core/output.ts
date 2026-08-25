@@ -10,6 +10,9 @@ export interface FailureJson {
   error: {
     code: string;
     message: string;
+    details?: {
+      status: number;
+    };
   };
 }
 
@@ -20,11 +23,13 @@ export function successJson<T>(data: T): SuccessJson<T> {
 }
 
 export function failureJson(error: CliError): FailureJson {
+  const status = safeHttpStatus(error.details?.status);
   return {
     ok: false,
     error: {
       code: error.code,
       message: error.message,
+      ...(status === null ? {} : { details: { status } }),
     },
   };
 }
@@ -51,4 +56,8 @@ function sanitizeErrorValues(value: unknown, seen = new WeakSet<object>()): unkn
   }
 
   return value;
+}
+
+function safeHttpStatus(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599 ? value : null;
 }
