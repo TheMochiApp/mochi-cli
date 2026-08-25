@@ -1,0 +1,4 @@
+interface:
+  display_name: "Mochi API"
+  short_description: "Connect agents and integrations to Mochi safely."
+  default_prompt: "Use $mochi-api to choose authentication, read current Mochi docs, and complete this integration safely."

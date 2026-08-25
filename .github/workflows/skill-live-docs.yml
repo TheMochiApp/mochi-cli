@@ -1,0 +1,30 @@
+name: Mochi skill live docs
+
+on:
+  schedule:
+    - cron: "17 8 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mochi-skill-live-docs
+  cancel-in-progress: false
+
+jobs:
+  discovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Verify public documentation discovery
+        run: npm run check:live-docs
