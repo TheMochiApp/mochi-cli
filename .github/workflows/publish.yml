@@ -32,8 +32,10 @@ jobs:
           ref: ${{ inputs.tag }}
       - name: Verify the release tag matches package.json and HEAD
         env:
+          RELEASE_RUN_REF: ${{ github.ref }}
           RELEASE_TAG: ${{ inputs.tag }}
         run: |
+          test "$RELEASE_RUN_REF" = "refs/tags/$RELEASE_TAG"
           test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
       - name: Set up Node.js 20
