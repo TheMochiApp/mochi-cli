@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "../core/config.js";
 import { CliError, ExitCode } from "../core/errors.js";
+import { isReadScope } from "../core/scopes.js";
 import type { OAuthHttp, OAuthHttpResponse } from "../oauth/types.js";
 import { withCredentialLock as acquireCredentialLock } from "../storage/lock.js";
 import { resolveStoragePaths } from "../storage/paths.js";
@@ -10,15 +11,8 @@ const REFRESH_WINDOW_MS = 60_000;
 const API_TIMEOUT_MS = 15_000;
 const MAX_API_RESPONSE_BYTES = 1024 * 1024;
 const MAX_API_METADATA_LENGTH = 256;
-const READ_SCOPES = new Set([
-  "analytics:read",
-  "bookings:read",
-  "config:read",
-  "leads:read",
-  "revenue:read",
-  "signals:read",
-  "team:read",
-]);
+
+class ResponseTooLargeError extends Error {}
 
 export interface CredentialLock {
   <Result>(lockPath: string, callback: () => Promise<Result>): Promise<Result>;
@@ -57,21 +51,27 @@ export class AuthenticatedClient {
     const url = validateTarget(target, this.#config.apiBaseUrl);
     const loaded = await this.#repository.getCredentials();
     if (!loaded) throw authenticationRequired();
+    const knownCredentials = new Set([loaded.accessToken, loaded.refreshToken]);
 
-    const current = await this.#ensureFresh(loaded);
-    const first = await this.#request(url, current.accessToken);
+    const current = await this.#ensureFresh(loaded, false, knownCredentials);
+    const first = await this.#request(url, current.accessToken, knownCredentials);
     if (first.status !== 401) return first;
 
-    const retriedBundle = await this.#ensureFresh(current, true);
-    return await this.#request(url, retriedBundle.accessToken);
+    const retriedBundle = await this.#ensureFresh(current, true, knownCredentials);
+    return await this.#request(url, retriedBundle.accessToken, knownCredentials);
   }
 
-  async #ensureFresh(bundle: CredentialBundle, force = false): Promise<CredentialBundle> {
+  async #ensureFresh(
+    bundle: CredentialBundle,
+    force: boolean,
+    knownCredentials: Set<string>,
+  ): Promise<CredentialBundle> {
     if (!force && !expiresWithinWindow(bundle, this.#now())) return bundle;
 
     return await this.#withCredentialLock(this.#lockPath, async () => {
       const reloaded = await this.#repository.getCredentials();
       if (!reloaded) throw authenticationRequired();
+      addCredentialSecrets(knownCredentials, reloaded);
 
       if (reloaded.accessToken !== bundle.accessToken && !expiresWithinWindow(reloaded, this.#now())) {
         return reloaded;
@@ -101,11 +101,12 @@ export class AuthenticatedClient {
         throw new CliError("OAUTH_TOKEN_INVALID", "Mochi returned an invalid OAuth token response.", ExitCode.OAuth);
       }
       await this.#repository.setCredentials(rotated);
+      addCredentialSecrets(knownCredentials, rotated);
       return rotated;
     });
   }
 
-  async #request(url: URL, accessToken: string): Promise<ApiResponse> {
+  async #request(url: URL, accessToken: string, knownCredentials: ReadonlySet<string>): Promise<ApiResponse> {
     let response: Response;
     try {
       response = await this.#fetch(url.toString(), {
@@ -118,10 +119,10 @@ export class AuthenticatedClient {
       throw new CliError("API_NETWORK_ERROR", "Could not reach the Mochi API.", ExitCode.Network);
     }
 
-    const body = await readApiBody(response.body);
+    const body = redactValue(await readApiBody(response.body), knownCredentials);
     const result: ApiResponse = { status: response.status, body };
-    const requestId = safeResponseHeader(response.headers, "x-request-id");
-    const retryAfter = safeResponseHeader(response.headers, "retry-after");
+    const requestId = safeResponseHeader(response.headers, "x-request-id", knownCredentials);
+    const retryAfter = safeResponseHeader(response.headers, "retry-after", knownCredentials);
     if (requestId !== null) result.requestId = requestId;
     if (retryAfter !== null) result.retryAfter = retryAfter;
     return result;
@@ -129,11 +130,15 @@ export class AuthenticatedClient {
 }
 
 function validateTarget(target: string, apiBaseUrl: string): URL {
+  const queryStart = target.indexOf("?");
+  const fragmentStart = target.indexOf("#");
+  const rawPath = queryStart === -1 ? target : target.slice(0, queryStart);
   if (
-    !target.startsWith("/v1/") ||
-    target.startsWith("//") ||
-    target.includes("\\") ||
-    /%(?:2e|2f|5c|25)/iu.test(target)
+    fragmentStart !== -1 ||
+    !rawPath.startsWith("/v1/") ||
+    rawPath.startsWith("//") ||
+    rawPath.includes("\\") ||
+    /%(?:2e|2f|5c|25)/iu.test(rawPath)
   ) {
     throw invalidTarget();
   }
@@ -160,7 +165,12 @@ function validateTarget(target: string, apiBaseUrl: string): URL {
 
 async function readApiBody(body: ReadableStream<Uint8Array> | null): Promise<unknown> {
   if (body === null) return null;
-  const reader = body.getReader();
+  let reader: ReadableStreamDefaultReader<Uint8Array>;
+  try {
+    reader = body.getReader();
+  } catch {
+    throw apiNetworkError();
+  }
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
@@ -171,7 +181,7 @@ async function readApiBody(body: ReadableStream<Uint8Array> | null): Promise<unk
         size += value.byteLength;
         if (size > MAX_API_RESPONSE_BYTES) {
           await reader.cancel().catch(() => undefined);
-          throw new CliError("API_RESPONSE_TOO_LARGE", "The Mochi API response was too large.", ExitCode.Api);
+          throw new ResponseTooLargeError();
         }
         chunks.push(value);
       }
@@ -179,8 +189,10 @@ async function readApiBody(body: ReadableStream<Uint8Array> | null): Promise<unk
       reader.releaseLock();
     }
   } catch (error) {
-    if (error instanceof CliError) throw error;
-    throw new CliError("API_RESPONSE_INVALID", "The Mochi API returned an invalid response.", ExitCode.Api);
+    if (error instanceof ResponseTooLargeError) {
+      throw new CliError("API_RESPONSE_TOO_LARGE", "The Mochi API response was too large.", ExitCode.Api);
+    }
+    throw apiNetworkError();
   }
 
   const bytes = new Uint8Array(size);
@@ -235,11 +247,12 @@ function decodeRefreshBundle(value: unknown, current: CredentialBundle, now: Dat
 function isExactScopeResponse(value: unknown, expected: readonly string[]): boolean {
   if (typeof value !== "string" || value.trim().length === 0) return false;
   const scopes = value.trim().split(/\s+/u);
+  const scopeSet: ReadonlySet<string> = new Set(scopes);
   return (
-    scopes.every((scope) => READ_SCOPES.has(scope)) &&
+    scopes.every(isReadScope) &&
     scopes.length === expected.length &&
     new Set(scopes).size === scopes.length &&
-    expected.every((scope) => scopes.includes(scope))
+    expected.every((scope) => scopeSet.has(scope))
   );
 }
 
@@ -255,9 +268,54 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function safeResponseHeader(headers: Headers, name: string): string | null {
+function safeResponseHeader(headers: Headers, name: string, secrets: ReadonlySet<string>): string | null {
   const value = headers.get(name);
-  return value !== null && value.length <= MAX_API_METADATA_LENGTH ? value : null;
+  if (value === null || value.length > MAX_API_METADATA_LENGTH) return null;
+  const redacted = redactString(value, secrets);
+  return redacted.length <= MAX_API_METADATA_LENGTH ? redacted : null;
+}
+
+function addCredentialSecrets(secrets: Set<string>, bundle: CredentialBundle): void {
+  secrets.add(bundle.accessToken);
+  secrets.add(bundle.refreshToken);
+}
+
+function redactValue(value: unknown, secrets: ReadonlySet<string>, ancestors = new WeakSet<object>()): unknown {
+  if (typeof value === "string") return redactString(value, secrets);
+  if (typeof value !== "object" || value === null) return value;
+  if (ancestors.has(value)) return "[circular]";
+
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((entry) => redactValue(entry, secrets, ancestors));
+    }
+
+    const result: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      Object.defineProperty(result, redactString(key, secrets), {
+        value: redactValue(entry, secrets, ancestors),
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
+    return result;
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+function redactString(value: string, secrets: ReadonlySet<string>): string {
+  let redacted = value;
+  for (const secret of [...secrets].sort((left, right) => right.length - left.length)) {
+    if (secret.length > 0) redacted = redacted.split(secret).join("[redacted]");
+  }
+  return redacted;
+}
+
+function apiNetworkError(): CliError {
+  return new CliError("API_NETWORK_ERROR", "Could not reach the Mochi API.", ExitCode.Network);
 }
 
 function authenticationRequired(): CliError {

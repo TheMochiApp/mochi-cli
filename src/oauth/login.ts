@@ -1,5 +1,6 @@
 import type { RuntimeConfig } from "../core/config.js";
 import { CliError, ExitCode } from "../core/errors.js";
+import { isReadScope, type ReadScope } from "../core/scopes.js";
 import { withCredentialLock as acquireCredentialLock } from "../storage/lock.js";
 import { resolveStoragePaths } from "../storage/paths.js";
 import {
@@ -15,17 +16,7 @@ import { createPkce as generatePkce, type PkceValues } from "./pkce.js";
 import { waitForOAuthCallback as receiveCallback, type WaitForOAuthCallbackOptions } from "./callback-server.js";
 import type { OAuthCallback, OAuthHttp, OAuthMetadata } from "./types.js";
 
-export const READ_SCOPES = [
-  "analytics:read",
-  "bookings:read",
-  "config:read",
-  "leads:read",
-  "revenue:read",
-  "signals:read",
-  "team:read",
-] as const;
-
-type ReadScope = (typeof READ_SCOPES)[number];
+export { READ_SCOPES } from "../core/scopes.js";
 
 export interface LoginResult {
   authenticated: true;
@@ -221,10 +212,6 @@ function isValidCallback(callback: OAuthCallback, redirectUris: readonly string[
     redirectUris.includes(callback.redirectUri) &&
     callback.redirectUri.startsWith("http://127.0.0.1:")
   );
-}
-
-function isReadScope(value: string): value is ReadScope {
-  return (READ_SCOPES as readonly string[]).includes(value);
 }
 
 function isSecret(value: unknown): value is string {

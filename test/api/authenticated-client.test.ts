@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { AuthenticatedClient } from "../../src/api/authenticated-client.js";
 import type { RuntimeConfig } from "../../src/core/config.js";
+import { CliError, ExitCode } from "../../src/core/errors.js";
 import type { OAuthHttp } from "../../src/oauth/types.js";
 import { PUBLIC_API_RESOURCE, type CredentialBundle, type CredentialRepository } from "../../src/storage/types.js";
 
@@ -259,8 +260,20 @@ describe("AuthenticatedClient", () => {
     });
     const fetch = vi
       .fn<typeof globalThis.fetch>()
-      .mockResolvedValueOnce(jsonResponse({ detail: "expired" }, 401))
-      .mockResolvedValueOnce(jsonResponse({ detail: "still unauthorized" }, 401, { "retry-after": "3" }));
+      .mockResolvedValueOnce(
+        jsonResponse({ detail: "expired access-old refresh-old" }, 401, { "x-request-id": "access-old" }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            detail: "still unauthorized access-old refresh-old access-new refresh-new",
+            nested: [{ authorization: "Bearer access-new" }, "refresh-new"],
+            "access-new": "refresh-old",
+          },
+          401,
+          { "x-request-id": "request-access-old-refresh-new", "retry-after": "refresh-old" },
+        ),
+      );
     const client = new AuthenticatedClient({
       config: CONFIG,
       repository: credentials.value,
@@ -273,8 +286,13 @@ describe("AuthenticatedClient", () => {
 
     await expect(client.get("/v1/leads/")).resolves.toEqual({
       status: 401,
-      body: { detail: "still unauthorized" },
-      retryAfter: "3",
+      body: {
+        detail: "still unauthorized [redacted] [redacted] [redacted] [redacted]",
+        nested: [{ authorization: "Bearer [redacted]" }, "[redacted]"],
+        "[redacted]": "[redacted]",
+      },
+      requestId: "request-[redacted]-[redacted]",
+      retryAfter: "[redacted]",
     });
     expect(http.postForm).toHaveBeenCalledOnce();
     expect(fetch).toHaveBeenCalledTimes(2);
@@ -322,11 +340,11 @@ describe("AuthenticatedClient", () => {
       http: oauthHttp(),
       fetch: vi.fn(
         async () =>
-          new Response("temporarily unavailable", {
+          new Response("temporarily unavailable for access-old and refresh-old", {
             status: 429,
             headers: {
-              "x-request-id": "req-429",
-              "retry-after": "12",
+              "x-request-id": "req-access-old",
+              "retry-after": "refresh-old",
               "set-cookie": "secret-cookie=value",
               authorization: "Bearer server-secret",
             },
@@ -340,21 +358,21 @@ describe("AuthenticatedClient", () => {
 
     expect(result).toEqual({
       status: 429,
-      body: "temporarily unavailable",
-      requestId: "req-429",
-      retryAfter: "12",
+      body: "temporarily unavailable for [redacted] and [redacted]",
+      requestId: "req-[redacted]",
+      retryAfter: "[redacted]",
     });
     expect(JSON.stringify(result)).not.toMatch(/cookie|server-secret|authorization/u);
   });
 
   test("omits oversized request metadata", async () => {
-    const credentials = repository(bundle());
+    const credentials = repository(bundle({ accessToken: "r", refreshToken: "s" }));
     const client = new AuthenticatedClient({
       config: CONFIG,
       repository: credentials.value,
       http: oauthHttp(),
       fetch: vi.fn(async () =>
-        jsonResponse({ ok: true }, 429, { "x-request-id": "r".repeat(300), "retry-after": "1".repeat(300) }),
+        jsonResponse({ ok: true }, 429, { "x-request-id": "r".repeat(200), "retry-after": "s".repeat(200) }),
       ),
       withCredentialLock: serialLock(),
       lockPath: "/tmp/mochi.lock",
@@ -385,6 +403,26 @@ describe("AuthenticatedClient", () => {
 
     await expect(client.get(target)).rejects.toMatchObject({ code: "API_TARGET_INVALID" });
     expect(credentials.value.getCredentials).not.toHaveBeenCalled();
+  });
+
+  test("allows encoded slash, percent, and backslash values in the query only", async () => {
+    const credentials = repository(bundle());
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => jsonResponse({ ok: true }));
+    const client = new AuthenticatedClient({
+      config: CONFIG,
+      repository: credentials.value,
+      http: oauthHttp(),
+      fetch,
+      withCredentialLock: serialLock(),
+      lockPath: "/tmp/mochi.lock",
+    });
+    const query = new URLSearchParams({ slash: "a/b", percent: "10%", backslash: "a\\b" });
+
+    await expect(client.get(`/v1/leads/?${query.toString()}`)).resolves.toMatchObject({ status: 200 });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.themochi.app/v1/leads/?slash=a%2Fb&percent=10%25&backslash=a%5Cb",
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   test("bounds response reads incrementally and does not expose bearer material in the error", async () => {
@@ -433,7 +471,29 @@ describe("AuthenticatedClient", () => {
 
     const failure = await client.get("/v1/leads/").catch((error: unknown) => error);
 
-    expect(failure).toMatchObject({ code: "API_RESPONSE_INVALID" });
+    expect(failure).toMatchObject({ code: "API_NETWORK_ERROR", exitCode: 5 });
     expect(String(failure)).not.toContain("access-old");
+  });
+
+  test("does not trust a CliError thrown by an untrusted response stream", async () => {
+    const credentials = repository(bundle());
+    const stream = new ReadableStream<Uint8Array>({
+      pull() {
+        throw new CliError("UNTRUSTED", "stream leaked refresh-old", ExitCode.Api);
+      },
+    });
+    const client = new AuthenticatedClient({
+      config: CONFIG,
+      repository: credentials.value,
+      http: oauthHttp(),
+      fetch: vi.fn(async () => new Response(stream)),
+      withCredentialLock: serialLock(),
+      lockPath: "/tmp/mochi.lock",
+    });
+
+    const failure = await client.get("/v1/leads/").catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ code: "API_NETWORK_ERROR", exitCode: 5 });
+    expect(String(failure)).not.toContain("refresh-old");
   });
 });

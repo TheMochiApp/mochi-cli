@@ -1,14 +1,6 @@
-export const PUBLIC_API_RESOURCE = "https://api.themochi.app/v1/" as const;
+import { isReadScope } from "../core/scopes.js";
 
-const READ_SCOPES = new Set([
-  "analytics:read",
-  "bookings:read",
-  "config:read",
-  "leads:read",
-  "revenue:read",
-  "signals:read",
-  "team:read",
-]);
+export const PUBLIC_API_RESOURCE = "https://api.themochi.app/v1/" as const;
 
 export interface CredentialBundle {
   accessToken: string;
@@ -137,12 +129,7 @@ function isAbsoluteExpiry(value: unknown): value is string {
 }
 
 function isReadScopeList(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.every((scope) => typeof scope === "string" && READ_SCOPES.has(scope)) &&
-    new Set(value).size === value.length
-  );
+  return Array.isArray(value) && value.length > 0 && value.every(isReadScope) && new Set(value).size === value.length;
 }
 
 function isSecureEndpoint(value: unknown, requireRootPath: boolean): value is string {
