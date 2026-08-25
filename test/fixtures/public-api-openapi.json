@@ -1,0 +1,116 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/v1/analytics/benchmarks/": {
+      "get": {
+        "operationId": "get_public_analytics_benchmarks",
+        "x-mochi-required-scope": ["analytics:read"]
+      }
+    },
+    "/v1/analytics/funnel/": {
+      "get": {
+        "operationId": "get_public_analytics_funnel",
+        "x-mochi-required-scope": ["analytics:read"]
+      }
+    },
+    "/v1/analytics/links/": {
+      "get": {
+        "operationId": "get_public_analytics_links",
+        "x-mochi-required-scope": ["analytics:read"]
+      }
+    },
+    "/v1/analytics/messages/": {
+      "get": {
+        "operationId": "get_public_analytics_messages",
+        "x-mochi-required-scope": ["analytics:read"]
+      }
+    },
+    "/v1/analytics/reply-rate/": {
+      "get": {
+        "operationId": "get_public_analytics_reply_rate",
+        "x-mochi-required-scope": ["analytics:read"]
+      }
+    },
+    "/v1/analytics/response-times/": {
+      "get": {
+        "operationId": "get_public_analytics_response_times",
+        "x-mochi-required-scope": ["analytics:read"]
+      }
+    },
+    "/v1/analytics/team/": {
+      "get": {
+        "operationId": "get_public_analytics_team",
+        "x-mochi-required-scope": ["analytics:read"]
+      }
+    },
+    "/v1/bookings/": {
+      "get": {
+        "operationId": "get_public_bookings_list",
+        "x-mochi-required-scope": ["bookings:read"]
+      }
+    },
+    "/v1/config/funnels/": {
+      "get": {
+        "operationId": "get_public_config_funnels",
+        "x-mochi-required-scope": ["config:read"]
+      }
+    },
+    "/v1/config/tags/": {
+      "get": {
+        "operationId": "get_public_config_tags",
+        "x-mochi-required-scope": ["config:read"]
+      }
+    },
+    "/v1/connections/": {
+      "get": {
+        "operationId": "get_public_connections_list",
+        "x-mochi-required-scope": ["config:read"]
+      }
+    },
+    "/v1/leads/": {
+      "get": {
+        "operationId": "get_public_leads_list",
+        "x-mochi-required-scope": ["leads:read"]
+      }
+    },
+    "/v1/leads/{lead_id}/": {
+      "get": {
+        "operationId": "get_public_lead_detail",
+        "x-mochi-required-scope": ["leads:read"]
+      }
+    },
+    "/v1/leads/{lead_id}/intelligence/": {
+      "get": {
+        "operationId": "get_public_lead_intelligence",
+        "x-mochi-required-scope": ["leads:read", "signals:read"]
+      }
+    },
+    "/v1/revenue/manual/": {
+      "get": {
+        "operationId": "get_public_revenue_manual",
+        "x-mochi-required-scope": ["revenue:read"]
+      }
+    },
+    "/v1/revenue/summary/": {
+      "get": {
+        "operationId": "get_public_revenue_summary",
+        "x-mochi-required-scope": ["revenue:read"]
+      }
+    },
+    "/v1/revenue/transactions/": {
+      "get": {
+        "operationId": "get_public_revenue_transactions",
+        "x-mochi-required-scope": ["revenue:read"]
+      }
+    },
+    "/v1/signals/": {
+      "get": {
+        "operationId": "get_public_signals_list",
+        "x-mochi-required-scope": ["signals:read"]
+      }
+    }
+  }
+}

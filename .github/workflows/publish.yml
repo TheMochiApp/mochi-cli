@@ -1,0 +1,120 @@
+name: Publish npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing protected v* release tag to publish
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: npm-production-publish
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Require the canonical public repository
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: test "$RELEASE_REPOSITORY" = "TheMochiApp/mochi-cli"
+      - name: Check out the requested tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag }}
+      - name: Verify the release tag matches package.json and HEAD
+        env:
+          RELEASE_RUN_REF: ${{ github.ref }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          test "$RELEASE_RUN_REF" = "refs/tags/$RELEASE_TAG"
+          test "$RELEASE_TAG" = "v$(node -p "require('./package.json').version")"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Run full repository gates
+        run: npm run ci
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Verify publishable package contents
+        run: node scripts/verify-package.mjs
+      - name: Validate live OpenAPI contract
+        env:
+          MOCHI_OPENAPI_URL: https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json
+        run: node dist/cli.js openapi validate
+      - name: Build scripts-disabled npm artifact and checksum
+        run: |
+          mkdir release-artifact
+          npm pack --ignore-scripts --pack-destination release-artifact
+          test "$(find release-artifact -maxdepth 1 -type f -name '*.tgz' | wc -l | tr -d ' ')" = "1"
+          cd release-artifact
+          sha256sum -- *.tgz > package.sha256
+      - name: Upload verified npm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package-${{ github.run_id }}
+          path: release-artifact/
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - name: Require the canonical public repository
+        env:
+          RELEASE_REPOSITORY: ${{ github.repository }}
+        run: test "$RELEASE_REPOSITORY" = "TheMochiApp/mochi-cli"
+      - name: Download verified npm artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-package-${{ github.run_id }}
+          path: release-artifact
+      - name: Set up trusted-publishing runtime
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Assert trusted-publishing runtime versions
+        run: |
+          node --input-type=module -e '
+            import { execFileSync } from "node:child_process";
+            const compare = (actual, required) => {
+              const parts = actual.split(".").map(Number);
+              for (let index = 0; index < required.length; index += 1) {
+                if (parts[index] > required[index]) return 1;
+                if (parts[index] < required[index]) return -1;
+              }
+              return 0;
+            };
+            if (compare(process.versions.node, [24, 0, 0]) < 0) throw new Error("Node 24 or newer is required.");
+            const npmVersion = execFileSync("npm", ["--version"], { encoding: "utf8" }).trim();
+            if (compare(npmVersion, [11, 5, 1]) < 0) throw new Error("npm 11.5.1 or newer is required.");
+            process.stdout.write(`Trusted publishing runtime: Node ${process.versions.node}, npm ${npmVersion}\n`);
+          '
+      - name: Verify artifact checksum
+        working-directory: release-artifact
+        run: sha256sum --check package.sha256
+      - name: Publish verified tarball with npm provenance
+        working-directory: release-artifact
+        run: npm publish ./*.tgz --ignore-scripts --provenance --access public
