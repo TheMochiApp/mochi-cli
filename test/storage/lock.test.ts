@@ -85,6 +85,70 @@ describe("credential directory lease", () => {
     await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  test("a live waiter never claims or resurrects a lease released after its preliminary snapshot", async () => {
+    const path = await leasePath();
+    let releaseOwner: (() => void) | undefined;
+    const ownerMayFinish = new Promise<void>((resolve) => {
+      releaseOwner = resolve;
+    });
+    let ownerStarted: (() => void) | undefined;
+    const ownerDidStart = new Promise<void>((resolve) => {
+      ownerStarted = resolve;
+    });
+    let inspectionReached: (() => void) | undefined;
+    const waiterInspected = new Promise<void>((resolve) => {
+      inspectionReached = resolve;
+    });
+    let resumeInspection: (() => void) | undefined;
+    const inspectionMayResume = new Promise<void>((resolve) => {
+      resumeInspection = resolve;
+    });
+    let paused = false;
+    let waiterEntries = 0;
+
+    const owner = withCredentialLock(path, async () => {
+      ownerStarted?.();
+      await ownerMayFinish;
+    });
+    await ownerDidStart;
+    const waiter = withCredentialLock(
+      path,
+      async () => {
+        waiterEntries += 1;
+      },
+      {
+        sleep: async () => new Promise((resolve) => setTimeout(resolve, 1)),
+        afterPreliminaryInspectionForTests: async () => {
+          if (!paused) {
+            paused = true;
+            inspectionReached?.();
+            await inspectionMayResume;
+          }
+        },
+      },
+    );
+
+    const observedInspection = await Promise.race([
+      waiterInspected.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 100)),
+    ]);
+    if (!observedInspection) {
+      releaseOwner?.();
+      resumeInspection?.();
+      await Promise.allSettled([owner, waiter]);
+    }
+    expect(observedInspection).toBe(true);
+
+    releaseOwner?.();
+    await owner;
+    resumeInspection?.();
+    await waiter;
+
+    expect(waiterEntries).toBe(1);
+    await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await readdir(dirname(path))).filter((entry) => entry.includes(".claim."))).toEqual([]);
+  });
+
   test("removes a valid lease only when its timestamp is older than sixty seconds", async () => {
     const path = await leasePath();
     await createLease(path, { nonce: "stale-owner", acquiredAt: 9_999 });
@@ -155,10 +219,8 @@ describe("credential directory lease", () => {
     await expect(withCredentialLock(path, async () => undefined, { now: () => 70_000 })).rejects.toMatchObject({
       code: "CREDENTIAL_LOCK_UNSAFE",
     });
-    await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
-    const claimName = (await readdir(dirname(path))).find((entry) => entry.includes(".credentials.lock.claim."));
-    expect(claimName).toBeDefined();
-    expect((await readdir(join(dirname(path), claimName as string))).sort()).toEqual(["owner", "unexpected"]);
+    expect((await readdir(path)).sort()).toEqual(["owner", "unexpected"]);
+    expect((await readdir(dirname(path))).filter((entry) => entry.includes(".credentials.lock.claim."))).toEqual([]);
   });
 
   test("release removes only its unique claim when a replacement wins the fixed path", async () => {

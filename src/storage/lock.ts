@@ -23,6 +23,10 @@ interface LeaseSnapshot {
   record: LeaseRecord | null;
   modifiedAt: number;
   changedAt: number;
+  directoryDevice: bigint;
+  directoryInode: bigint;
+  ownerDevice: bigint | null;
+  ownerInode: bigint | null;
 }
 
 export interface CredentialLockOptions {
@@ -31,6 +35,7 @@ export interface CredentialLockOptions {
   sleep?: (milliseconds: number) => Promise<void>;
   renameFile?: (source: string, destination: string) => Promise<void>;
   platform?: NodeJS.Platform;
+  afterPreliminaryInspectionForTests?: () => Promise<void>;
 }
 
 export async function withCredentialLock<Result>(
@@ -46,7 +51,9 @@ export async function withCredentialLock<Result>(
   const startedAt = now();
 
   await ensureOwnerOnlyDirectory(dirname(lockPath), platform);
-  while (!(await tryAcquireLease(lockPath, nonce, now, platform, renameFile))) {
+  while (
+    !(await tryAcquireLease(lockPath, nonce, now, platform, renameFile, options.afterPreliminaryInspectionForTests))
+  ) {
     if (now() - startedAt >= ACQUISITION_DEADLINE_MS) {
       throw new CliError(
         "CREDENTIAL_LOCK_TIMEOUT",
@@ -70,6 +77,7 @@ async function tryAcquireLease(
   now: () => number,
   platform: NodeJS.Platform,
   renameFile: (source: string, destination: string) => Promise<void>,
+  afterPreliminaryInspection: (() => Promise<void>) | undefined,
 ): Promise<boolean> {
   if (await recoverClaims(lockPath, now(), platform, renameFile)) {
     return false;
@@ -81,7 +89,7 @@ async function tryAcquireLease(
     if (!isFileError(error, "EEXIST")) {
       throw lockFailure("Could not create the Mochi credential lease.");
     }
-    await resolveFixedLease(lockPath, now(), platform, renameFile);
+    await resolveFixedLease(lockPath, now(), platform, renameFile, afterPreliminaryInspection);
     return false;
   }
 
@@ -114,7 +122,22 @@ async function resolveFixedLease(
   currentTime: number,
   platform: NodeJS.Platform,
   renameFile: (source: string, destination: string) => Promise<void>,
+  afterPreliminaryInspection: (() => Promise<void>) | undefined,
 ): Promise<void> {
+  let observed: LeaseSnapshot;
+  try {
+    observed = await inspectLease(lockPath, platform);
+  } catch (error) {
+    if (error instanceof LeaseMissingError) {
+      return;
+    }
+    throw error;
+  }
+  await afterPreliminaryInspection?.();
+  if (!isStale(observed, currentTime)) {
+    return;
+  }
+
   const claimPath = uniqueClaimPath(lockPath);
   try {
     await renameFile(lockPath, claimPath);
@@ -134,7 +157,7 @@ async function resolveFixedLease(
     }
     throw error;
   }
-  if (isStale(claimed, currentTime)) {
+  if (sameLease(observed, claimed) && isStale(claimed, currentTime)) {
     await removeClaim(claimPath, claimed);
     return;
   }
@@ -158,7 +181,16 @@ async function releaseLease(
     return;
   }
 
-  const claimed = await inspectLease(claimPath, platform);
+  let claimed: LeaseSnapshot;
+  try {
+    claimed = await inspectLease(claimPath, platform);
+  } catch (error) {
+    if (error instanceof LeaseMissingError) {
+      await removeOwnedClaims(lockPath, nonce, platform);
+      return;
+    }
+    throw error;
+  }
   if (claimed.record?.nonce === nonce) {
     await removeClaim(claimPath, claimed);
   } else {
@@ -184,7 +216,16 @@ async function withdrawOwnedLease(
     return;
   }
 
-  const claimed = await inspectLease(claimPath, platform);
+  let claimed: LeaseSnapshot;
+  try {
+    claimed = await inspectLease(claimPath, platform);
+  } catch (error) {
+    if (error instanceof LeaseMissingError) {
+      await removeOwnedClaims(lockPath, nonce, platform);
+      return;
+    }
+    throw error;
+  }
   if (claimed.record?.nonce === nonce) {
     await removeClaim(claimPath, claimed);
   } else {
@@ -224,7 +265,15 @@ async function recoverClaims(
       }
       throw lockFailure("Could not atomically recover an abandoned lease claim.");
     }
-    const recovered = await inspectLease(recoveryPath, platform);
+    let recovered: LeaseSnapshot;
+    try {
+      recovered = await inspectLease(recoveryPath, platform);
+    } catch (error) {
+      if (error instanceof LeaseMissingError) {
+        continue;
+      }
+      throw error;
+    }
     if (isStale(recovered, currentTime)) {
       await removeClaim(recoveryPath, recovered);
     } else if (!(await restoreClaim(recoveryPath, lockPath, recovered, platform))) {
@@ -275,7 +324,15 @@ async function restoreClaim(
       restored = await inspectLease(lockPath, platform);
     } catch (error) {
       if (error instanceof LeaseMissingError) {
-        const originalClaim = await inspectLease(claimPath, platform);
+        let originalClaim: LeaseSnapshot;
+        try {
+          originalClaim = await inspectLease(claimPath, platform);
+        } catch (claimError) {
+          if (claimError instanceof LeaseMissingError) {
+            return false;
+          }
+          throw claimError;
+        }
         if (originalClaim.contents === snapshot.contents) {
           await removeClaim(claimPath, originalClaim);
           return false;
@@ -295,15 +352,31 @@ async function restoreClaim(
 }
 
 async function removeClaim(claimPath: string, snapshot: LeaseSnapshot): Promise<void> {
-  const entries = await readdir(claimPath);
+  let entries: string[];
+  try {
+    entries = await readdir(claimPath);
+  } catch (error) {
+    if (isFileError(error, "ENOENT")) {
+      return;
+    }
+    throw error;
+  }
   const expectedEntries = snapshot.contents === null ? [] : [OWNER_FILE];
   if (entries.sort().join(",") !== expectedEntries.join(",")) {
     throw unsafeLock();
   }
   if (snapshot.contents !== null) {
-    await unlink(join(claimPath, OWNER_FILE));
+    await unlink(join(claimPath, OWNER_FILE)).catch((error: unknown) => {
+      if (!isFileError(error, "ENOENT")) {
+        throw error;
+      }
+    });
   }
-  await rmdir(claimPath);
+  await rmdir(claimPath).catch((error: unknown) => {
+    if (!isFileError(error, "ENOENT")) {
+      throw error;
+    }
+  });
 }
 
 async function removeEmptyOrOwnedDirectory(
@@ -340,13 +413,25 @@ async function inspectLease(leasePath: string, platform: NodeJS.Platform): Promi
     throw unsafeLock();
   }
 
-  const entries = await readdir(leasePath);
+  let entries: string[];
+  try {
+    entries = await readdir(leasePath);
+  } catch (error) {
+    if (isFileError(error, "ENOENT")) {
+      throw new LeaseMissingError("Credential lease disappeared during validation.");
+    }
+    throw lockFailure("Could not list the Mochi credential lease.");
+  }
   if (entries.length === 0) {
     return {
       contents: null,
       record: null,
       modifiedAt: Number(directoryStats.mtimeMs),
       changedAt: Number(directoryStats.ctimeMs),
+      directoryDevice: directoryStats.dev,
+      directoryInode: directoryStats.ino,
+      ownerDevice: null,
+      ownerInode: null,
     };
   }
   if (entries.length !== 1 || entries[0] !== OWNER_FILE) {
@@ -359,14 +444,26 @@ async function inspectLease(leasePath: string, platform: NodeJS.Platform): Promi
     record: parseLeaseRecord(owner.contents),
     modifiedAt: Math.max(Number(directoryStats.mtimeMs), owner.modifiedAt),
     changedAt: Number(directoryStats.ctimeMs),
+    directoryDevice: directoryStats.dev,
+    directoryInode: directoryStats.ino,
+    ownerDevice: owner.device,
+    ownerInode: owner.inode,
   };
 }
 
 async function readOwnerContents(
   ownerPath: string,
   platform: NodeJS.Platform,
-): Promise<{ contents: string; modifiedAt: number }> {
-  const pathStats = await lstat(ownerPath, { bigint: true });
+): Promise<{ contents: string; modifiedAt: number; device: bigint; inode: bigint }> {
+  let pathStats;
+  try {
+    pathStats = await lstat(ownerPath, { bigint: true });
+  } catch (error) {
+    if (isFileError(error, "ENOENT")) {
+      throw new LeaseMissingError("Credential lease owner disappeared during validation.");
+    }
+    throw lockFailure("Could not inspect the Mochi credential lease owner.");
+  }
   if (
     pathStats.isSymbolicLink() ||
     !pathStats.isFile() ||
@@ -387,10 +484,18 @@ async function readOwnerContents(
     ) {
       throw unsafeLock();
     }
-    return { contents: await handle.readFile("utf8"), modifiedAt: Number(handleStats.mtimeMs) };
+    return {
+      contents: await handle.readFile("utf8"),
+      modifiedAt: Number(handleStats.mtimeMs),
+      device: handleStats.dev,
+      inode: handleStats.ino,
+    };
   } catch (error) {
     if (error instanceof CliError) {
       throw error;
+    }
+    if (error instanceof LeaseMissingError || isFileError(error, "ENOENT")) {
+      throw new LeaseMissingError("Credential lease owner disappeared during validation.");
     }
     throw lockFailure("Could not read the Mochi credential lease owner.");
   } finally {
@@ -443,6 +548,16 @@ function parseLeaseRecord(contents: string): LeaseRecord | null {
 
 function isStale(snapshot: LeaseSnapshot, currentTime: number): boolean {
   return currentTime - (snapshot.record?.acquiredAt ?? snapshot.modifiedAt) > STALE_AFTER_MS;
+}
+
+function sameLease(left: LeaseSnapshot, right: LeaseSnapshot): boolean {
+  return (
+    left.directoryDevice === right.directoryDevice &&
+    left.directoryInode === right.directoryInode &&
+    left.ownerDevice === right.ownerDevice &&
+    left.ownerInode === right.ownerInode &&
+    left.contents === right.contents
+  );
 }
 
 async function listClaimPaths(lockPath: string): Promise<string[]> {
