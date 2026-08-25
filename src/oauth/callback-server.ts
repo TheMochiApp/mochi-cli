@@ -66,7 +66,11 @@ export async function waitForOAuthCallback({
   const settle = async (outcome: OAuthCallback | CliError, status: number, respond?: CallbackResponder) => {
     if (settled) return;
     settled = true;
-    respond?.(status, outcome instanceof CliError ? FAILURE_HTML : SUCCESS_HTML);
+    try {
+      respond?.(status, outcome instanceof CliError ? FAILURE_HTML : SUCCESS_HTML);
+    } catch {
+      // The callback outcome still wins if the browser disconnects before HTML is written.
+    }
     await listener?.close().catch(() => undefined);
     if (outcome instanceof CliError) rejectResult(outcome);
     else resolveResult(outcome);
@@ -118,20 +122,21 @@ export async function waitForOAuthCallback({
       408,
     );
   }, timeoutMs);
+  const browserFailure = Promise.resolve()
+    .then(() => onListening?.(redirectUri))
+    .then<never>(
+      () => new Promise<never>(() => undefined),
+      async (error: unknown) => {
+        const safeError =
+          error instanceof CliError
+            ? error
+            : new CliError("OAUTH_BROWSER_FAILED", "Could not start browser authorization.", ExitCode.OAuth);
+        await settle(safeError, 500);
+        throw safeError;
+      },
+    );
   try {
-    await onListening?.(redirectUri);
-    return await result;
-  } catch (error) {
-    if (!settled) {
-      const safeError =
-        error instanceof CliError
-          ? error
-          : new CliError("OAUTH_BROWSER_FAILED", "Could not start browser authorization.", ExitCode.OAuth);
-      settled = true;
-      await listener.close().catch(() => undefined);
-      throw safeError;
-    }
-    throw error;
+    return await Promise.race([result, browserFailure]);
   } finally {
     clearTimeout(timer);
   }
@@ -168,13 +173,27 @@ function validateCallbackRequest(request: CallbackRequest, port: number, expecte
   if (states.length !== 1 || !constantTimeEqual(states[0] ?? "", expectedState)) {
     return new CliError("OAUTH_STATE_MISMATCH", "The OAuth callback state was invalid.", ExitCode.OAuth);
   }
-  if (errors.length === 1 && codes.length === 0) {
+  const errorDescription = url.searchParams.getAll("error_description");
+  if (
+    errors.length === 1 &&
+    errors[0]?.trim() &&
+    codes.length === 0 &&
+    (hasExactParameters(url, ["state", "error"]) ||
+      (hasExactParameters(url, ["state", "error", "error_description"]) &&
+        errorDescription.length === 1 &&
+        Boolean(errorDescription[0]?.trim())))
+  ) {
     return new CliError("OAUTH_AUTHORIZATION_DENIED", "Mochi authorization was not granted.", ExitCode.OAuth);
   }
-  if (errors.length !== 0 || codes.length !== 1 || !codes[0]?.trim()) {
+  if (errors.length !== 0 || codes.length !== 1 || !codes[0]?.trim() || !hasExactParameters(url, ["state", "code"])) {
     return callbackInvalid();
   }
   return codes[0];
+}
+
+function hasExactParameters(url: URL, expected: readonly string[]): boolean {
+  const actual = [...url.searchParams.keys()].sort();
+  return actual.length === expected.length && [...expected].sort().every((key, index) => key === actual[index]);
 }
 
 function constantTimeEqual(left: string, right: string): boolean {

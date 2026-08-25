@@ -15,7 +15,7 @@ const CONFIG: RuntimeConfig = {
 
 const METADATA: OAuthMetadata = {
   issuer: CONFIG.issuerUrl,
-  authorizationEndpoint: "https://app.themochi.app/oauth/authorize/",
+  authorizationEndpoint: "https://use.themochi.app/oauth/authorize/",
   tokenEndpoint: "https://api.themochi.app/api/zapier/oauth/token/",
   registrationEndpoint: "https://api.themochi.app/api/zapier/oauth/register/",
   revocationEndpoint: "https://api.themochi.app/api/zapier/oauth/revoke/",
@@ -151,7 +151,7 @@ describe("OAuth login", () => {
 
     expect(stderr).toHaveBeenCalledOnce();
     const displayed = String(stderr.mock.calls[0]?.[0]);
-    expect(displayed).toContain("https://app.themochi.app/oauth/authorize/");
+    expect(displayed).toContain("https://use.themochi.app/oauth/authorize/");
     expect(displayed).not.toMatch(/pkce-verifier|access-token|refresh-token|authorization-code/u);
   });
 
@@ -174,9 +174,80 @@ describe("OAuth login", () => {
 
     await login(deps);
 
-    expect(withCredentialLock).toHaveBeenCalledOnce();
+    expect(withCredentialLock).toHaveBeenCalledTimes(2);
     expect(credentials.setCredentials).toHaveBeenCalledOnce();
     expect(lockHeld).toBe(false);
+  });
+
+  test("serializes first-use DCR without holding the lease across browser interaction", async () => {
+    let savedClient: PublicClientRecord | null = null;
+    const credentials = repository();
+    credentials.getClientRecord = vi.fn(async () => savedClient);
+    credentials.setClientRecord = vi.fn(async (record) => {
+      savedClient = record;
+    });
+    const http = tokenHttp({
+      access_token: "access-token-secret",
+      refresh_token: "refresh-token-secret",
+      token_type: "Bearer",
+      expires_in: 3600,
+      scope: "leads:read",
+    });
+    http.postJson = vi.fn(async () => ({
+      status: 201,
+      body: {
+        client_id: "race-safe-client",
+        redirect_uris: [...LOOPBACK_REDIRECT_URIS],
+        grant_types: ["authorization_code", "refresh_token"],
+        response_types: ["code"],
+        token_endpoint_auth_method: "none",
+      },
+    }));
+    let tail = Promise.resolve();
+    let activeLocks = 0;
+    let maximumActiveLocks = 0;
+    const withCredentialLock = async <Result>(_path: string, callback: () => Promise<Result>) => {
+      const predecessor = tail;
+      let release: (() => void) | undefined;
+      tail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await predecessor;
+      activeLocks += 1;
+      maximumActiveLocks = Math.max(maximumActiveLocks, activeLocks);
+      try {
+        return await callback();
+      } finally {
+        activeLocks -= 1;
+        release?.();
+      }
+    };
+    let callbackCount = 0;
+    const waitForOAuthCallback = vi.fn(async (options) => {
+      await withCredentialLock("/tmp/mochi-test-credentials.lock", async () => undefined);
+      callbackCount += 1;
+      await options.onListening?.(LOOPBACK_REDIRECT_URIS[0] ?? "");
+      return {
+        code: `authorization-code-${callbackCount}`,
+        redirectUri: LOOPBACK_REDIRECT_URIS[0] ?? "",
+      };
+    });
+    const shared = {
+      repository: credentials,
+      http,
+      readonlyScopes: ["leads:read"],
+      ensurePublicClient: undefined,
+      waitForOAuthCallback,
+      withCredentialLock,
+    };
+
+    await Promise.all([login(dependencies(shared)), login(dependencies(shared))]);
+
+    expect(http.postJson).toHaveBeenCalledOnce();
+    expect(credentials.setClientRecord).toHaveBeenCalledOnce();
+    expect(waitForOAuthCallback).toHaveBeenCalledTimes(2);
+    expect(http.postForm).toHaveBeenCalledTimes(2);
+    expect(maximumActiveLocks).toBe(1);
   });
 
   test.each([

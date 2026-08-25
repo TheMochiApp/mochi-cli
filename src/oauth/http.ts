@@ -57,18 +57,16 @@ async function requestJson(
     throw new CliError("OAUTH_NETWORK_ERROR", "Could not reach the Mochi OAuth server.", ExitCode.Network);
   }
 
-  const contentLength = response.headers.get("content-length");
-  if (contentLength !== null && Number(contentLength) > MAX_RESPONSE_BYTES) {
-    throw invalidResponse();
-  }
-
-  let text: string;
+  let bytes: Uint8Array;
   try {
-    text = await response.text();
+    bytes = await readBoundedBody(response.body);
   } catch {
     throw invalidResponse();
   }
-  if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
     throw invalidResponse();
   }
 
@@ -86,6 +84,35 @@ async function requestJson(
     headers[key] = value;
   });
   return { status: response.status, body, headers };
+}
+
+async function readBoundedBody(body: ReadableStream<Uint8Array> | null): Promise<Uint8Array> {
+  if (body === null) return new Uint8Array();
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_RESPONSE_BYTES) {
+        await reader.cancel().catch(() => undefined);
+        throw invalidResponse();
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const combined = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return combined;
 }
 
 function invalidResponse(): CliError {

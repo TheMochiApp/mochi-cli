@@ -2,7 +2,7 @@ import { CliError, ExitCode } from "../core/errors.js";
 import type { OAuthHttp, OAuthMetadata } from "./types.js";
 
 const PRODUCTION_API_ORIGIN = "https://api.themochi.app";
-const PRODUCTION_APP_ORIGIN = "https://app.themochi.app";
+const PRODUCTION_APP_ORIGIN = "https://use.themochi.app";
 
 export interface DiscoverOAuthOptions {
   issuerUrl: string;

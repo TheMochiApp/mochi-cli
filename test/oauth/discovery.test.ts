@@ -42,11 +42,11 @@ describe("OAuth discovery", () => {
   test("allows only the exact production frontend authorization origin exception", async () => {
     const http = mockHttp({
       ...METADATA,
-      authorization_endpoint: "https://app.themochi.app/oauth/authorize/",
+      authorization_endpoint: "https://use.themochi.app/oauth/authorize/",
     });
 
     await expect(discoverOAuth({ issuerUrl: ISSUER, http })).resolves.toMatchObject({
-      authorizationEndpoint: "https://app.themochi.app/oauth/authorize/",
+      authorizationEndpoint: "https://use.themochi.app/oauth/authorize/",
     });
   });
 
@@ -121,5 +121,43 @@ describe("OAuth HTTP boundary", () => {
     expect(failure).toMatchObject({ code: "OAUTH_NETWORK_ERROR" });
     expect(String(failure)).not.toContain("must-not-leak");
     expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  test("cancels a chunked response as soon as it crosses the 64 KiB cap", async () => {
+    let pulls = 0;
+    let cancelled = false;
+    const marker = new TextEncoder().encode('"access_token":"must-not-leak"');
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        pull(controller) {
+          pulls += 1;
+          const chunk = new Uint8Array(32 * 1024);
+          chunk.set(marker);
+          controller.enqueue(chunk);
+        },
+        cancel() {
+          cancelled = true;
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const fetch = vi.fn(async () => new Response(stream, { status: 200 }));
+    const http = createOAuthHttp({ fetch: fetch as unknown as typeof globalThis.fetch });
+
+    const failure = await http.getJson("https://api.themochi.app/discovery").catch((error: unknown) => error);
+
+    expect(failure).toMatchObject({ code: "OAUTH_RESPONSE_INVALID" });
+    expect(String(failure)).not.toContain("must-not-leak");
+    expect(pulls).toBe(3);
+    expect(cancelled).toBe(true);
+  });
+
+  test("rejects malformed UTF-8 without exposing body bytes", async () => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array([0xc3, 0x28]), { status: 200 }));
+    const http = createOAuthHttp({ fetch: fetch as unknown as typeof globalThis.fetch });
+
+    await expect(http.getJson("https://api.themochi.app/discovery")).rejects.toMatchObject({
+      code: "OAUTH_RESPONSE_INVALID",
+    });
   });
 });

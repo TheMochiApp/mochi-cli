@@ -82,6 +82,11 @@ describe("OAuth loopback callback", () => {
     ["wrong path", { url: "/other?code=authorization-code&state=expected-state" }, "OAUTH_CALLBACK_INVALID"],
     ["wrong host", { host: "localhost:48151" }, "OAUTH_CALLBACK_INVALID"],
     [
+      "an unknown success parameter",
+      { url: "/callback?code=authorization-code&state=expected-state&next=https%3A%2F%2Fevil.example" },
+      "OAUTH_CALLBACK_INVALID",
+    ],
+    [
       "duplicate code",
       {
         url: "/callback?code=first&code=second&state=expected-state",
@@ -115,6 +120,54 @@ describe("OAuth loopback callback", () => {
       await vi.advanceTimersByTimeAsync(300_000);
 
       await rejection;
+      expect(listener.close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("times out even when browser startup never resolves", async () => {
+    vi.useFakeTimers();
+    try {
+      const listener = harness();
+      const callbackPromise = waitForOAuthCallback({
+        redirectUris: LOOPBACK_REDIRECT_URIS,
+        expectedState: "expected-state",
+        listen: listener.listen,
+        onListening: () => new Promise<void>(() => undefined),
+      });
+      const rejection = expect(callbackPromise).rejects.toMatchObject({ code: "OAUTH_CALLBACK_TIMEOUT" });
+
+      await vi.advanceTimersByTimeAsync(300_000);
+
+      await rejection;
+      expect(listener.close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 1_000);
+
+  test("consumes a browser-start rejection that arrives after callback timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const listener = harness();
+      let rejectBrowserStart: ((error: Error) => void) | undefined;
+      const browserStart = new Promise<void>((_resolve, reject) => {
+        rejectBrowserStart = reject;
+      });
+      const callbackPromise = waitForOAuthCallback({
+        redirectUris: LOOPBACK_REDIRECT_URIS,
+        expectedState: "expected-state",
+        listen: listener.listen,
+        onListening: () => browserStart,
+      });
+      const rejection = expect(callbackPromise).rejects.toMatchObject({ code: "OAUTH_CALLBACK_TIMEOUT" });
+
+      await vi.advanceTimersByTimeAsync(300_000);
+      await rejection;
+      rejectBrowserStart?.(new Error("pkce-verifier-must-not-leak"));
+      await Promise.resolve();
+
       expect(listener.close).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
@@ -166,31 +219,48 @@ describe("OAuth loopback callback", () => {
     expect(String(failure)).not.toContain("pkce-verifier-secret");
     expect(listener.close).toHaveBeenCalledOnce();
   });
+
+  test("accepts only the backend denial parameter set", async () => {
+    const listener = harness();
+    const callbackPromise = waitForOAuthCallback({
+      redirectUris: LOOPBACK_REDIRECT_URIS,
+      expectedState: "expected-state",
+      listen: listener.listen,
+    });
+
+    const { result } = await settleRequest(callbackPromise, listener, {
+      url: "/callback?error=access_denied&error_description=The+user+denied+the+request&state=expected-state",
+    });
+
+    expect(result).toMatchObject({ code: "OAUTH_AUTHORIZATION_DENIED" });
+    expect(listener.close).toHaveBeenCalledOnce();
+  });
 });
 
 describe("browser adapter", () => {
   test.each([
-    ["darwin" as const, "open", ["https://app.themochi.app/authorize"]],
-    ["linux" as const, "xdg-open", ["https://app.themochi.app/authorize"]],
-    ["win32" as const, "rundll32", ["url.dll,FileProtocolHandler", "https://app.themochi.app/authorize"]],
+    ["darwin" as const, "open", ["https://use.themochi.app/authorize"]],
+    ["linux" as const, "xdg-open", ["https://use.themochi.app/authorize"]],
+    ["win32" as const, "rundll32", ["url.dll,FileProtocolHandler", "https://use.themochi.app/authorize"]],
   ])("uses argument-array invocation on %s", async (platform, command, args) => {
     const child = {
-      once: vi.fn((event: string, callback: (value: Error | number | null) => void) => {
-        if (event === "close") callback(0);
+      once: vi.fn((event: string, callback: (value?: Error) => void) => {
+        if (event === "spawn") callback();
         return child;
       }),
     };
     const spawn = vi.fn(() => child);
 
-    await expect(openBrowser("https://app.themochi.app/authorize", { platform, spawn })).resolves.toBeNull();
+    await expect(openBrowser("https://use.themochi.app/authorize", { platform, spawn })).resolves.toBeNull();
     expect(spawn).toHaveBeenCalledWith(command, args, { stdio: "ignore", windowsHide: true });
+    expect(child.once).not.toHaveBeenCalledWith("close", expect.any(Function));
   });
 
   test("returns the authorization URL when opening fails", async () => {
-    const authorizationUrl = "https://app.themochi.app/authorize?state=safe";
+    const authorizationUrl = "https://use.themochi.app/authorize?state=safe";
     const child = {
-      once: vi.fn((event: string, callback: (value: Error | number | null) => void) => {
-        if (event === "close") callback(1);
+      once: vi.fn((event: string, callback: (value?: Error) => void) => {
+        if (event === "error") callback(new Error("failed"));
         return child;
       }),
     };

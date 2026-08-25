@@ -63,10 +63,14 @@ export async function login(options: LoginOptions): Promise<LoginResult> {
     issuerUrl: options.config.issuerUrl,
     http: options.http,
   });
-  const client = await (options.ensurePublicClient ?? registerPublicClient)({
-    metadata,
-    http: options.http,
-    repository: options.repository,
+  const lockPath = options.lockPath ?? resolveStoragePaths().lockPath;
+  const withCredentialLock = options.withCredentialLock ?? acquireCredentialLock;
+  const client = await withCredentialLock(lockPath, async () => {
+    return await (options.ensurePublicClient ?? registerPublicClient)({
+      metadata,
+      http: options.http,
+      repository: options.repository,
+    });
   });
   const pkce = (options.createPkce ?? generatePkce)();
   const openBrowser = options.openBrowser ?? launchBrowser;
@@ -86,8 +90,6 @@ export async function login(options: LoginOptions): Promise<LoginResult> {
     throw new CliError("OAUTH_CALLBACK_INVALID", "The OAuth callback request was invalid.", ExitCode.OAuth);
   }
 
-  const lockPath = options.lockPath ?? resolveStoragePaths().lockPath;
-  const withCredentialLock = options.withCredentialLock ?? acquireCredentialLock;
   await withCredentialLock(lockPath, async () => {
     const response = await options.http.postForm(
       metadata.tokenEndpoint,
