@@ -54,10 +54,10 @@
 - [ ] Scaffold with the repository-independent skill creator:
 
       python3 /Users/maximossapranidis/.codex/skills/.system/skill-creator/scripts/init_skill.py \
-            mochi-api --path skills --resources references \
-            --interface display_name='Mochi API' \
-            --interface short_description='Connect agents and integrations to Mochi safely.' \
-            --interface default_prompt='Use $mochi-api to choose authentication, read current Mochi docs, and complete this integration safely.'
+                mochi-api --path skills --resources references \
+                --interface display_name='Mochi API' \
+                --interface short_description='Connect agents and integrations to Mochi safely.' \
+                --interface default_prompt='Use $mochi-api to choose authentication, read current Mochi docs, and complete this integration safely.'
 
 - [ ] Replace the generated entrypoint with a concise router: choose workload/auth, read one direct reference, follow `/llms.txt` → task guide → OpenAPI → installed CLI help, enforce credential/read-only boundaries, and finish with a structured verification report.
 - [ ] In `authentication.md`, explain interactive OAuth CLI, unattended API key, existing MCP, and registered OAuth application journeys. Cover minimum scopes, browser consent, revocation, secret-manager/keychain boundaries, and the prohibition against exposing a credential.
@@ -80,7 +80,7 @@
 - [ ] Add failing tests for deterministic skill-tree validation, exactly-one-skill discovery from the repository root, and absence of `skills/` from `npm pack --dry-run --json` output.
 - [ ] Implement `scripts/verify-skill.mjs` to validate frontmatter, required files, direct-reference resolution, no placeholders, no forbidden API/catalog content, and no root skill. It must produce deterministic sanitized errors and never access the network.
 - [ ] Add `verify:skill` to `package.json` and include it in `ci` before the build.
-- [ ] Add CI steps that run `npm run verify:skill`, the official Agent Skills reference validator pinned to commit `69ef37e9424c0a7ea9dd2293b559e43ec8176379`, and a clean temporary `npx skills add <checkout> --skill mochi-api --agent codex --copy --yes` installation. Install the validator with `pip install 'git+https://github.com/agentskills/agentskills.git@69ef37e9424c0a7ea9dd2293b559e43ec8176379#subdirectory=skills-ref'`, then run `skills-ref validate skills/mochi-api`. Verify exactly one installed directory named `mochi-api`.
+- [ ] Add CI steps that run `npm run verify:skill`, the official Agent Skills reference validator pinned to commit `69ef37e9424c0a7ea9dd2293b559e43ec8176379`, and a clean temporary `npx skills add "$GITHUB_WORKSPACE" --skill mochi-api --agent codex --copy --yes` installation. Install the validator with `pip install 'git+https://github.com/agentskills/agentskills.git@69ef37e9424c0a7ea9dd2293b559e43ec8176379#subdirectory=skills-ref'`, then run `skills-ref validate skills/mochi-api`. Verify exactly one installed directory named `mochi-api`.
 - [ ] Keep the npm package allowlist unchanged and prove the tarball contains only the CLI artifacts already intended for publication.
 - [ ] Run the skill validator, install test, package policy test, and full CLI CI.
 - [ ] Commit: `test: validate Mochi API skill packaging`.
