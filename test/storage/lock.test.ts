@@ -342,7 +342,7 @@ describe("credential directory lease", () => {
     expect(removalAttempts).toBe(21);
   });
 
-  test("does not retry a POSIX non-empty directory removal", async () => {
+  posixTest("does not retry a POSIX non-empty directory removal", async () => {
     const path = await leasePath();
     let removalAttempts = 0;
 
