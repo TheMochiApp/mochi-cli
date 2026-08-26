@@ -127,7 +127,7 @@ before a credential is loaded, preventing bearer-token exfiltration.
 The canonical runtime URL is:
 
 ```text
-https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json
+https://openapi.gitbook.com/o/bpgVa93BfrzaqXzuggv8/spec/mochi-api.json
 ```
 
 The backend workflow publishes that specification from

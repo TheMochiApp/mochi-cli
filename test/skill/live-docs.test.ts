@@ -12,11 +12,7 @@ const guideSlugs = [
 ];
 
 function discoveryIndex(origin = "https://docs.themochi.app"): string {
-  return [
-    "# Mochi Public API",
-    ...guideSlugs.map((slug) => `- [${slug}](${origin}/${slug})`),
-    `- [OpenAPI](${OPENAPI_URL})`,
-  ].join("\n");
+  return ["# Mochi Public API", ...guideSlugs.map((slug) => `- [${slug}](${origin}/${slug})`)].join("\n");
 }
 
 function fakeResponse(body: string, contentType = "text/markdown"): Response {
@@ -24,7 +20,7 @@ function fakeResponse(body: string, contentType = "text/markdown"): Response {
 }
 
 describe("live documentation discovery", () => {
-  test("parses the six same-origin guides and exact OpenAPI artifact", () => {
+  test("parses the six same-origin guides without requiring llms.txt to expose OpenAPI directly", () => {
     const discovery = parseDiscoveryLinks(discoveryIndex(), DOCS_INDEX_URL);
 
     expect(discovery.guideUrls).toEqual(guideSlugs.map((slug) => `https://docs.themochi.app/${slug}`));
@@ -38,12 +34,10 @@ describe("live documentation discovery", () => {
     expect(() => parseDiscoveryLinks(discoveryIndex("https://evil.example"), DOCS_INDEX_URL)).toThrow("same origin");
   });
 
-  test("requires exactly one canonical OpenAPI link in llms.txt", () => {
-    expect(() => parseDiscoveryLinks(discoveryIndex().replace(`- [OpenAPI](${OPENAPI_URL})`, ""))).toThrow(
-      "exactly one canonical OpenAPI link",
-    );
-    expect(() => parseDiscoveryLinks(`${discoveryIndex()}\n- [OpenAPI duplicate](${OPENAPI_URL})`)).toThrow(
-      "exactly one canonical OpenAPI link",
+  test("rejects a noncanonical OpenAPI link when llms.txt declares one", () => {
+    const staleUrl = "https://openapi.gitbook.com/o/stale/spec/mochi-api.json";
+    expect(() => parseDiscoveryLinks(`${discoveryIndex()}\n- [OpenAPI](${staleUrl})`)).toThrow(
+      "noncanonical OpenAPI link",
     );
   });
 

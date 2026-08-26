@@ -5,7 +5,7 @@ import { fileURLToPath, URL } from "node:url";
 import { TextDecoder } from "node:util";
 
 export const DOCS_INDEX_URL = "https://docs.themochi.app/llms.txt";
-export const OPENAPI_URL = "https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json";
+export const OPENAPI_URL = "https://openapi.gitbook.com/o/bpgVa93BfrzaqXzuggv8/spec/mochi-api.json";
 
 const guideSlugs = [
   "build-bounded-automation",
@@ -39,8 +39,8 @@ export function parseDiscoveryLinks(content, indexUrl = DOCS_INDEX_URL) {
   }
 
   const declaredOpenApiUrls = links.filter((url) => url.hostname === "openapi.gitbook.com");
-  if (declaredOpenApiUrls.length !== 1 || declaredOpenApiUrls[0].href !== OPENAPI_URL) {
-    throw new Error("Expected exactly one canonical OpenAPI link in llms.txt.");
+  if (declaredOpenApiUrls.some((url) => url.href !== OPENAPI_URL)) {
+    throw new Error("llms.txt contains a noncanonical OpenAPI link.");
   }
   return { guideUrls, openapiUrl: OPENAPI_URL };
 }

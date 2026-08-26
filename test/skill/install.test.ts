@@ -5,7 +5,7 @@ import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, test } from "vitest";
 
-import { skillInstallerInvocation } from "../../scripts/install-skill-smoke.mjs";
+import { skillInstallSource, skillInstallerInvocation } from "../../scripts/install-skill-smoke.mjs";
 import { inspectSkillRepository } from "../../scripts/verify-skill.mjs";
 
 interface PackFile {
@@ -22,6 +22,13 @@ describe("skill distribution", () => {
   test("uses a shell-backed npx.cmd invocation on Windows only", () => {
     expect(skillInstallerInvocation("win32")).toEqual({ executable: "npx.cmd", shell: true });
     expect(skillInstallerInvocation("linux")).toEqual({ executable: "npx", shell: false });
+  });
+
+  test("uses the checked-out repository locally and the canonical GitHub source when requested", () => {
+    expect(skillInstallSource({})).toBe(repositoryRoot);
+    expect(skillInstallSource({ MOCHI_SKILL_SOURCE: "https://github.com/TheMochiApp/mochi-cli.git" })).toBe(
+      "https://github.com/TheMochiApp/mochi-cli.git",
+    );
   });
 
   test("passes the deterministic repository validator", async () => {

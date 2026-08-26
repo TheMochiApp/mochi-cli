@@ -53,7 +53,7 @@ jobs:
         run: node scripts/verify-package.mjs
       - name: Validate live OpenAPI contract
         env:
-          MOCHI_OPENAPI_URL: https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json
+          MOCHI_OPENAPI_URL: https://openapi.gitbook.com/o/bpgVa93BfrzaqXzuggv8/spec/mochi-api.json
         run: node dist/cli.js openapi validate
       - name: Build scripts-disabled npm artifact and checksum
         run: |

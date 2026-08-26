@@ -11,6 +11,10 @@ export function skillInstallerInvocation(platform) {
   return platform === "win32" ? { executable: "npx.cmd", shell: true } : { executable: "npx", shell: false };
 }
 
+export function skillInstallSource(environment = process.env) {
+  return environment.MOCHI_SKILL_SOURCE?.trim() || repositoryRoot;
+}
+
 async function main() {
   const installRoot = await mkdtemp(join(tmpdir(), "mochi-skill-install-"));
 
@@ -20,7 +24,18 @@ async function main() {
     const invocation = skillInstallerInvocation(process.platform);
     execFileSync(
       invocation.executable,
-      ["--yes", "skills@1.5.18", "add", repositoryRoot, "--skill", "mochi-api", "--agent", "codex", "--copy", "--yes"],
+      [
+        "--yes",
+        "skills@1.5.18",
+        "add",
+        skillInstallSource(),
+        "--skill",
+        "mochi-api",
+        "--agent",
+        "codex",
+        "--copy",
+        "--yes",
+      ],
       { cwd: installRoot, stdio: "pipe", shell: invocation.shell },
     );
 
