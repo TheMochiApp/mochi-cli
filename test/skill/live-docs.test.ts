@@ -41,6 +41,12 @@ describe("live documentation discovery", () => {
     );
   });
 
+  test("rejects duplicate canonical OpenAPI links when llms.txt declares them", () => {
+    expect(() =>
+      parseDiscoveryLinks(`${discoveryIndex()}\n- [OpenAPI](${OPENAPI_URL})\n- [OpenAPI duplicate](${OPENAPI_URL})`),
+    ).toThrow("at most one canonical OpenAPI link");
+  });
+
   test("checks every guide and the generated contract without credentials", async () => {
     const requested: string[] = [];
     const fetchImpl: typeof fetch = async (input, init) => {

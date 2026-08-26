@@ -39,6 +39,9 @@ export function parseDiscoveryLinks(content, indexUrl = DOCS_INDEX_URL) {
   }
 
   const declaredOpenApiUrls = links.filter((url) => url.hostname === "openapi.gitbook.com");
+  if (declaredOpenApiUrls.length > 1) {
+    throw new Error("llms.txt must contain at most one canonical OpenAPI link.");
+  }
   if (declaredOpenApiUrls.some((url) => url.href !== OPENAPI_URL)) {
     throw new Error("llms.txt contains a noncanonical OpenAPI link.");
   }
