@@ -304,6 +304,61 @@ describe("credential directory lease", () => {
     expect(result).toBe("acquired");
   });
 
+  test("retries a transient Windows sharing violation while claiming a lease for release", async () => {
+    const path = await leasePath();
+    let renameAttempts = 0;
+
+    await withCredentialLock(path, async () => undefined, {
+      platform: "win32",
+      renameFile: async (source, destination) => {
+        renameAttempts += 1;
+        if (renameAttempts === 1) {
+          throw Object.assign(new Error("sharing violation"), { code: "EPERM" });
+        }
+        await rename(source, destination);
+      },
+      sleep: async () => undefined,
+    });
+
+    expect(renameAttempts).toBe(2);
+    await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("bounds repeated Windows sharing-violation retries", async () => {
+    const path = await leasePath();
+    let renameAttempts = 0;
+
+    await expect(
+      withCredentialLock(path, async () => undefined, {
+        platform: "win32",
+        renameFile: async () => {
+          renameAttempts += 1;
+          throw Object.assign(new Error("sharing violation"), { code: "EPERM" });
+        },
+        sleep: async () => undefined,
+      }),
+    ).rejects.toMatchObject({ code: "CREDENTIAL_LOCK_FAILED" });
+
+    expect(renameAttempts).toBe(21);
+  });
+
+  posixTest("does not retry a POSIX lease-rename failure", async () => {
+    const path = await leasePath();
+    let renameAttempts = 0;
+
+    await expect(
+      withCredentialLock(path, async () => undefined, {
+        platform: "linux",
+        renameFile: async () => {
+          renameAttempts += 1;
+          throw Object.assign(new Error("permission denied"), { code: "EPERM" });
+        },
+      }),
+    ).rejects.toMatchObject({ code: "CREDENTIAL_LOCK_FAILED" });
+
+    expect(renameAttempts).toBe(1);
+  });
+
   test("retries a transient Windows delete-pending directory during release", async () => {
     const path = await leasePath();
     let removalAttempts = 0;

@@ -9,8 +9,8 @@ import { ensureOwnerOnlyDirectory } from "./file-store.js";
 const RETRY_DELAY_MS = 50;
 const ACQUISITION_DEADLINE_MS = 10_000;
 const STALE_AFTER_MS = 60_000;
-const WINDOWS_REMOVE_RETRY_DELAY_MS = 10;
-const WINDOWS_REMOVE_RETRY_LIMIT = 20;
+const WINDOWS_FILESYSTEM_RETRY_DELAY_MS = 10;
+const WINDOWS_FILESYSTEM_RETRY_LIMIT = 20;
 const OWNER_FILE = "owner";
 
 class LeaseMissingError extends Error {}
@@ -164,7 +164,7 @@ async function resolveFixedLease(
 
   const claimPath = uniqueClaimPath(lockPath);
   try {
-    await renameFile(lockPath, claimPath);
+    await renameLeaseWithWindowsRetry(lockPath, claimPath, platform, renameFile, claimRemovalRuntime.sleep);
   } catch (error) {
     if (isFileError(error, "ENOENT")) {
       return;
@@ -197,7 +197,7 @@ async function releaseLease(
 ): Promise<void> {
   const claimPath = uniqueClaimPath(lockPath);
   try {
-    await renameFile(lockPath, claimPath);
+    await renameLeaseWithWindowsRetry(lockPath, claimPath, platform, renameFile, claimRemovalRuntime.sleep);
   } catch (error) {
     if (!isFileError(error, "ENOENT")) {
       throw lockFailure("Could not atomically claim the Mochi credential lease for release.");
@@ -233,7 +233,7 @@ async function withdrawOwnedLease(
 ): Promise<void> {
   const claimPath = uniqueClaimPath(lockPath);
   try {
-    await renameFile(lockPath, claimPath);
+    await renameLeaseWithWindowsRetry(lockPath, claimPath, platform, renameFile, claimRemovalRuntime.sleep);
   } catch (error) {
     if (!isFileError(error, "ENOENT")) {
       throw lockFailure("Could not withdraw the Mochi credential lease.");
@@ -285,7 +285,7 @@ async function recoverClaims(
 
     const recoveryPath = uniqueClaimPath(lockPath);
     try {
-      await renameFile(claimPath, recoveryPath);
+      await renameLeaseWithWindowsRetry(claimPath, recoveryPath, platform, renameFile, claimRemovalRuntime.sleep);
     } catch (error) {
       if (isFileError(error, "ENOENT")) {
         continue;
@@ -415,12 +415,36 @@ async function removeClaim(claimPath: string, snapshot: LeaseSnapshot, runtime: 
       }
       if (
         runtime.platform !== "win32" ||
-        attempt >= WINDOWS_REMOVE_RETRY_LIMIT ||
-        !isTransientWindowsRemovalError(error)
+        attempt >= WINDOWS_FILESYSTEM_RETRY_LIMIT ||
+        !isTransientWindowsFilesystemError(error)
       ) {
         throw error;
       }
-      await runtime.sleep(WINDOWS_REMOVE_RETRY_DELAY_MS);
+      await runtime.sleep(WINDOWS_FILESYSTEM_RETRY_DELAY_MS);
+    }
+  }
+}
+
+async function renameLeaseWithWindowsRetry(
+  source: string,
+  destination: string,
+  platform: NodeJS.Platform,
+  renameFile: (source: string, destination: string) => Promise<void>,
+  sleep: (milliseconds: number) => Promise<void>,
+): Promise<void> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await renameFile(source, destination);
+      return;
+    } catch (error) {
+      if (
+        platform !== "win32" ||
+        attempt >= WINDOWS_FILESYSTEM_RETRY_LIMIT ||
+        !isTransientWindowsFilesystemError(error)
+      ) {
+        throw error;
+      }
+      await sleep(WINDOWS_FILESYSTEM_RETRY_DELAY_MS);
     }
   }
 }
@@ -643,6 +667,6 @@ function isFileError(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === code;
 }
 
-function isTransientWindowsRemovalError(error: unknown): boolean {
+function isTransientWindowsFilesystemError(error: unknown): boolean {
   return ["EBUSY", "ENOTEMPTY", "EPERM"].some((code) => isFileError(error, code));
 }
