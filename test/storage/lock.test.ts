@@ -342,7 +342,7 @@ describe("credential directory lease", () => {
     expect(renameAttempts).toBe(21);
   });
 
-  test("does not retry a POSIX lease-rename failure", async () => {
+  posixTest("does not retry a POSIX lease-rename failure", async () => {
     const path = await leasePath();
     let renameAttempts = 0;
 
