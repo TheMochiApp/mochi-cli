@@ -10,7 +10,7 @@ describe("runtime configuration", () => {
   test("uses the canonical OpenAPI document by default", () => {
     const config = loadRuntimeConfig({});
     expect(config.issuerUrl).toBe("https://api.themochi.app");
-    expect(config.openapiUrl).toBe("https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json");
+    expect(config.openapiUrl).toBe("https://openapi.gitbook.com/o/bpgVa93BfrzaqXzuggv8/spec/mochi-api.json");
   });
 
   test("normalizes trailing slashes and permits loopback HTTP overrides", () => {

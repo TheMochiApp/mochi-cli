@@ -128,7 +128,7 @@ Successful live validation reports the published versions and bounded registry s
 { "ok": true, "data": { "openapiVersion": "3.0.3", "apiVersion": "1.0.0", "operationCount": 18 } }
 ```
 
-The canonical specification is the public [GitBook OpenAPI artifact](https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json). Mochi's backend workflow publishes it from the checked-in `docs/public-api-v1-openapi.json` Git artifact only after backend `master` CI succeeds. The CLI does not ship a second specification: validation checks every wrapped operation ID, GET path, and required scope against that published contract.
+The canonical specification is the public [GitBook OpenAPI artifact](https://openapi.gitbook.com/o/bpgVa93BfrzaqXzuggv8/spec/mochi-api.json). Mochi's backend workflow publishes it from the checked-in `docs/public-api-v1-openapi.json` Git artifact only after backend `master` CI succeeds. The CLI does not ship a second specification: validation checks every wrapped operation ID, GET path, and required scope against that published contract.
 
 ## JSON and exit-code contract
 

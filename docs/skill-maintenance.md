@@ -36,3 +36,12 @@ Do not edit the skill for a new endpoint, renamed transport field, query option,
 8. Record whether the auth matrix, discovery URL, CLI boundary, or security invariant changed.
 
 Merging a skill change must not publish npm, enable a production flag, create or revoke an OAuth grant, reconnect MCP, or call customer data.
+
+## Automated maintenance
+
+- `CI` runs on every pull request and every push to `main`. It validates the portable Agent Skills structure, deterministic repository policy, behavioral guardrails, a clean local install, formatting, lint, types, tests, build output, production dependencies, and package contents on Linux and Windows.
+- `Mochi skill live docs` runs daily and can be dispatched manually. It installs `mochi-api` from the public GitHub repository, then checks the public `/llms.txt` index, every task guide, and the canonical OpenAPI artifact without credentials.
+- `Live OpenAPI contract` runs daily and validates the published OpenAPI document against the CLI command registry.
+- The npm publish workflow repeats the repository and live-contract gates before building the release artifact. Publishing the CLI is independent from distributing the skill.
+
+The skill is distributed directly from public GitHub `main`; it does not need an npm release or a separate hosting deployment. Skills.sh indexing and its security rescans are operated by Skills.sh, so this repository cannot force their timing. A security-sensitive skill change is complete only after repository CI passes and the external audit page reflects the new GitHub revision.

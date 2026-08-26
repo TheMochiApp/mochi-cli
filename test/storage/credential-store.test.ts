@@ -27,7 +27,7 @@ const VALID_BUNDLE: CredentialBundle = {
 const RUNTIME_CONFIG: RuntimeConfig = {
   apiBaseUrl: "https://api.themochi.app",
   issuerUrl: "https://api.themochi.app",
-  openapiUrl: "https://openapi.gitbook.com/o/M0sgy6xKutCblHRqGmE5/spec/mochi-api.json",
+  openapiUrl: "https://openapi.gitbook.com/o/bpgVa93BfrzaqXzuggv8/spec/mochi-api.json",
 };
 
 async function createFallbackStore(): Promise<SecretStore> {

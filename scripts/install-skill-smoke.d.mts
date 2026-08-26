@@ -4,3 +4,4 @@ export interface SkillInstallerInvocation {
 }
 
 export function skillInstallerInvocation(platform: NodeJS.Platform): SkillInstallerInvocation;
+export function skillInstallSource(environment?: NodeJS.ProcessEnv): string;
