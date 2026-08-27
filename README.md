@@ -2,7 +2,7 @@
 
 `mochi` is the read-only Mochi Public API client for humans, scripts, and AI agents. It uses direct browser OAuth with PKCE, stores credentials outside prompts and command history, and emits deterministic JSON.
 
-> Rollout status: this repository is Phase D of the Public API agent-access rollout. The Phase C consent flow and the default-empty exact-organization backend cohort have merged, but installing this package does not enable production access. Production Public API OAuth remains off and must stay off until the cohort implementation is deployed, configured, and verified through the reviewed rollout prerequisites below.
+> Rollout status: this repository is Phase D of the Public API agent-access rollout. Production is now a controlled single-organization pilot for `2d384e7e-8b88-45ee-bf74-4a11f5faf5ef`: the exact backend OAuth and Developers cohorts and matching frontend Developers build are live, and both global switches are enabled. OAuth remains limited to the seven read-only scopes, while the pilot is separately authorized to create read/write API keys. Flows remain disabled and P5 enforcement remains independent. Using this repository or skill changes none of those production controls.
 
 ## Install the Mochi API skill
 
@@ -168,31 +168,36 @@ Windows requires Credential Manager and fails closed when it is unavailable. The
 
 Refresh-token rotation is transparent and serialized by a cross-process directory lease. `auth status` reports `keyring` or `file-0600` but never prints a credential path or value.
 
-## Production prerequisites and dark deploy
+## Production controlled pilot and rollback
 
 Merging or publishing this CLI changes no Mochi production configuration. The backend has separate default-empty exact-UUID cohorts for OAuth and Settings → Developers. `PUBLIC_API_OAUTH_ENABLED_ORG_IDS` is the organization security boundary for Public API OAuth authorization, consent, code exchange, refresh, and bearer authentication; `PUBLIC_API_OAUTH_ENABLED` remains its global on/off switch. Together, backend `PUBLIC_API_DEVELOPERS_ENABLED` and `PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` authorize every Settings → Developers list, create, and revoke route. The Developers and OAuth cohorts are independent: changing one never enables the other. `VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` controls only Settings → Developers frontend visibility and does not gate backend routes, CLI consent, OAuth authorization, refresh, authentication, or `/v1/` traffic. Backend authorization is authoritative; frontend visibility is not authorization.
 
-Production OAuth remains off. Do not describe the Developers UI cohort as an OAuth canary and do not enable the global OAuth switch until the backend cohort is deployed and a reviewed exact-organization canary is configured. Operators must:
+Production is now a controlled single-organization pilot. The final reviewed merge result of [backend PR #1798](https://github.com/TheMochiApp/mochi-backend/pull/1798) is deployed to every backend web process. The exact organization `2d384e7e-8b88-45ee-bf74-4a11f5faf5ef` is the sole entry in `PUBLIC_API_OAUTH_ENABLED_ORG_IDS`, `PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS`, and the deployed `VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` frontend cohort. Backend `PUBLIC_API_OAUTH_ENABLED=true` and `PUBLIC_API_DEVELOPERS_ENABLED=true` are both live.
 
-1. Deploy the merged Phase C backend and frontend consent work and the exact-organization backend cohort.
-2. Keep the OAuth resource exactly `https://api.themochi.app/v1/` in backend `PUBLIC_API_OAUTH_RESOURCE` and frontend `VITE_PUBLIC_API_OAUTH_RESOURCE`.
-3. Keep `PUBLIC_API_OAUTH_ENABLED_ORG_IDS` default-empty, configure the seven read-only allowed scopes and the exact canary organization UUID, then verify cohort and non-cohort behavior before setting backend `PUBLIC_API_OAUTH_ENABLED=true`.
-4. Set backend `PUBLIC_API_ENABLED=true` only when authenticated Public API reads are ready globally under the approved API access controls.
-5. Before any Settings → Developers activation, confirm the final reviewed merge result of [backend PR #1798](https://github.com/TheMochiApp/mochi-backend/pull/1798) is deployed to every backend web process.
-6. While backend `PUBLIC_API_DEVELOPERS_ENABLED=false`, configure backend `PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` with only the exact approved lowercase canonical organization UUID, restart every backend web process, re-read the effective cohort, and verify cohort and non-cohort requests both return 404. Leave the independent OAuth switch and cohort unchanged.
-7. Configure frontend `VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` with the same exact approved organization UUID and redeploy the Vite bundle. This controls visibility only and cannot grant backend access.
-8. Activate Settings → Developers only after all three controls match: the deployed frontend cohort contains the exact organization, the backend cohort contains the exact organization, and backend `PUBLIC_API_DEVELOPERS_ENABLED=true`. Restart every backend web process, then smoke-test cohort list/create/list/revoke behavior and non-cohort 404s.
-9. Complete the Phase F rollout checklist with read-only scopes, monitoring, and a rollback owner.
+OAuth remains limited to the seven read-only scopes: `analytics:read`, `bookings:read`, `config:read`, `leads:read`, `revenue:read`, `signals:read`, and `team:read`. The same pilot is separately authorized to create read/write API keys through Settings → Developers; that API-key entitlement does not add an OAuth write scope. `PUBLIC_API_FLOWS_ENABLED=false`, so flow routes and workers remain unavailable. P5 enforcement remains independently controlled and is not enabled or widened by the Public API, OAuth, Developers, or API-key pilot settings.
 
-All backend flags default to false. Both backend organization cohorts and the frontend Developers cohort default empty, so omission fails closed; leave backend `PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` unset or empty for that default rather than configuring the literal text `[]`. Disabling `PUBLIC_API_OAUTH_ENABLED` removes OAuth metadata and stops new grants, refresh, and authentication of existing Public API OAuth tokens; API-key traffic remains available if `PUBLIC_API_ENABLED` stays true. Disabling `PUBLIC_API_ENABLED` rejects all Public API authentication and reads, including both OAuth and API keys. Disabling either Developers visibility or backend Developers access does not revoke credentials already issued.
+Operators must preserve these controlled-pilot conditions and repeat them before any reactivation or cohort expansion:
 
-Phase D does not add write scopes or write commands and does not change MCP, Zapier, first-party application traffic, send enforcement, or P5 pacing controls.
+1. Confirm the final reviewed merge result of [backend PR #1798](https://github.com/TheMochiApp/mochi-backend/pull/1798) is deployed to every backend web process.
+2. Keep the OAuth resource exactly `https://api.themochi.app/v1/` in backend `PUBLIC_API_OAUTH_RESOURCE` and frontend `VITE_PUBLIC_API_OAUTH_RESOURCE`, and keep the OAuth scope set at the exact seven reads above.
+3. Keep `PUBLIC_API_OAUTH_ENABLED_ORG_IDS` restricted to the exact approved lowercase canonical UUID, then verify cohort consent/exchange/refresh/bearer behavior and non-cohort denial while `PUBLIC_API_OAUTH_ENABLED=true`.
+4. Keep Settings → Developers active only while all three controls match: the deployed frontend cohort contains the exact organization, backend `PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` contains the exact organization, and backend `PUBLIC_API_DEVELOPERS_ENABLED=true`. Backend authorization remains authoritative regardless of frontend visibility.
+5. Keep flows false and P5 enforcement independently configured. Do not infer flow or outbound-enforcement approval from API-key, Developers, or OAuth access.
+6. Monitor OAuth authorize/exchange/refresh, key creation/revocation, Public API 401/403/404/429/5xx rates, tenant isolation, audit persistence, API latency, and MCP/Zapier regressions with a named rollback owner.
+
+All backend flags default to false. Both backend organization cohorts and the frontend Developers cohort default empty, so omission fails closed; leave backend `PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` unset or empty for that default rather than configuring the literal text `[]`. The live pilot values above are deliberate overrides, not new defaults.
+
+For a Developers-only rollback, set `PUBLIC_API_DEVELOPERS_ENABLED=false` first, restart every backend web process, and verify all Developers routes return 404; then remove the UUID from the backend Developers cohort and hide the matching frontend entry if required. Leave the independent OAuth switch and cohort unchanged. Revoke any affected API keys separately; hiding Developers does not invalidate credentials already issued.
+
+For an OAuth-only rollback, set `PUBLIC_API_OAUTH_ENABLED=false` and restart every backend web process for a global stop, or remove only the affected UUID from `PUBLIC_API_OAUTH_ENABLED_ORG_IDS` for a targeted stop. Either action stops affected exchanges, refreshes, and Public API OAuth bearer use; API-key and empty-resource MCP/Zapier traffic remains available while `PUBLIC_API_ENABLED` stays true. Leave the Developers settings unchanged unless the incident also affects credential management. For a broader Public API authentication or tenant-isolation incident, set `PUBLIC_API_ENABLED=false`; keep flows and P5 controls on their separate rollback paths.
+
+The Phase D CLI remains GET-only and does not add OAuth write scopes or write commands. The pilot's separately authorized API keys may use approved write scopes and routes outside this CLI. This rollout does not change MCP, Zapier, first-party application traffic, flow availability, send enforcement, or P5 pacing controls.
 
 ## Troubleshooting
 
 - `AUTH_REQUIRED`: run `mochi auth login` in a terminal with browser access.
 - `MISSING_SCOPE`: re-run login with the smallest required read scopes.
-- `OAUTH_*`: confirm the Phase C frontend/backend are deployed and the OAuth resource matches exactly. Production OAuth must remain off until the Phase F backend organization-cohort gate is deployed and configured.
+- `OAUTH_*`: confirm the exact pilot organization remains in `PUBLIC_API_OAUTH_ENABLED_ORG_IDS`, the backend and frontend OAuth resources match exactly, and the requested scopes are within the seven-read production set. Non-cohort denial is expected; do not bypass a targeted or global rollback.
 - `CREDENTIAL_STORAGE_UNAVAILABLE` on Windows: repair Credential Manager/native keyring access; plaintext fallback is intentionally disabled.
 - `CREDENTIAL_LOCK_TIMEOUT`: wait for the other CLI process to finish, then retry. The CLI reclaims only fully revalidated stale leases.
 - `OPENAPI_DRIFT`: do not bypass it. Check the published backend OpenAPI change and update the bounded command registry deliberately.
