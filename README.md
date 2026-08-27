@@ -2,7 +2,7 @@
 
 `mochi` is the read-only Mochi Public API client for humans, scripts, and AI agents. It uses direct browser OAuth with PKCE, stores credentials outside prompts and command history, and emits deterministic JSON.
 
-> Rollout status: this repository is Phase D of the Public API agent-access rollout. Installing it does not enable production access. Customer OAuth must remain off until the Phase C backend/frontend are merged and Phase F adds a real backend organization-cohort gate; the exact production prerequisites are below.
+> Rollout status: this repository is Phase D of the Public API agent-access rollout. The Phase C consent flow and the default-empty exact-organization backend cohort have merged, but installing this package does not enable production access. Production Public API OAuth remains off and must stay off until the cohort implementation is deployed, configured, and verified through the reviewed rollout prerequisites below.
 
 ## Install the Mochi API skill
 
@@ -170,13 +170,13 @@ Refresh-token rotation is transparent and serialized by a cross-process director
 
 ## Production prerequisites and dark deploy
 
-Merging or publishing this CLI changes no Mochi production configuration. The current Phase C OAuth switch is global: `PUBLIC_API_OAUTH_ENABLED` is not an organization allowlist. `VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` controls only visibility of Settings → Developers; it does not gate CLI consent, OAuth authorization, refresh, authentication, or `/v1/` traffic.
+Merging or publishing this CLI changes no Mochi production configuration. The backend now has a default-empty exact-UUID cohort in `PUBLIC_API_OAUTH_ENABLED_ORG_IDS`; it is the organization security boundary for Public API OAuth authorization, consent, code exchange, refresh, and bearer authentication. `PUBLIC_API_OAUTH_ENABLED` remains the global on/off switch, not an organization allowlist. `VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS` controls only visibility of Settings → Developers and does not gate CLI consent, OAuth authorization, refresh, authentication, or `/v1/` traffic.
 
-Do not describe the current controls as a named-organization OAuth canary, and do not turn on global OAuth “for one organization.” Customer OAuth enablement is forbidden until Phase F adds and enables a reviewed backend organization-cohort gate. After that gate exists, operators must:
+Production OAuth remains off. Do not describe the Developers UI cohort as an OAuth canary and do not enable the global OAuth switch until the backend cohort is deployed and a reviewed exact-organization canary is configured. Operators must:
 
-1. Merge and deploy the Phase C backend and frontend consent work.
+1. Deploy the merged Phase C backend and frontend consent work and the exact-organization backend cohort.
 2. Keep the OAuth resource exactly `https://api.themochi.app/v1/` in backend `PUBLIC_API_OAUTH_RESOURCE` and frontend `VITE_PUBLIC_API_OAUTH_RESOURCE`.
-3. Configure and verify the Phase F backend organization cohort before setting backend `PUBLIC_API_OAUTH_ENABLED=true` for Public API OAuth.
+3. Keep `PUBLIC_API_OAUTH_ENABLED_ORG_IDS` default-empty, configure the seven read-only allowed scopes and the exact canary organization UUID, then verify cohort and non-cohort behavior before setting backend `PUBLIC_API_OAUTH_ENABLED=true`.
 4. Set backend `PUBLIC_API_ENABLED=true` only when authenticated Public API reads are ready globally under the approved API access controls.
 5. If Settings → Developers is also being exposed, separately set backend `PUBLIC_API_DEVELOPERS_ENABLED=true`, configure `VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS`, and redeploy the Vite bundle. This UI cohort is not an OAuth security boundary.
 6. Complete the Phase F rollout checklist with read-only scopes, monitoring, and a rollback owner.
