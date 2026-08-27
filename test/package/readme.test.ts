@@ -17,4 +17,36 @@ describe("README command examples", () => {
     expect(readme).not.toMatch(/(?:signals|bookings|connections) list --query limit=/u);
     expect(readme).not.toContain("mochi api get '/v1/leads/?limit=10'");
   });
+
+  test("requires the authoritative backend Developers gate before frontend activation", async () => {
+    const readme = await readFile(README_URL, "utf8");
+
+    expect(readme).toContain(
+      "the final reviewed merge result of [backend PR #1798](https://github.com/TheMochiApp/mochi-backend/pull/1798) is deployed",
+    );
+    expect(readme).toContain("`PUBLIC_API_DEVELOPERS_ENABLED=true`");
+    expect(readme).toContain("`PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS`");
+    expect(readme).toContain("`VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS`");
+    expect(readme).toContain("Backend authorization is authoritative; frontend visibility is not authorization.");
+    expect(readme).toContain("The Developers and OAuth cohorts are independent");
+    expect(readme).toContain("Both backend organization cohorts and the frontend Developers cohort default empty");
+  });
+
+  test("records the active controlled pilot and independent rollback boundaries", async () => {
+    const readme = await readFile(README_URL, "utf8");
+
+    expect(readme).toContain("Production is now a controlled single-organization pilot");
+    expect(readme).toContain("`2d384e7e-8b88-45ee-bf74-4a11f5faf5ef`");
+    expect(readme).toContain("`PUBLIC_API_OAUTH_ENABLED=true`");
+    expect(readme).toContain("`PUBLIC_API_DEVELOPERS_ENABLED=true`");
+    expect(readme).toContain("OAuth remains limited to the seven read-only scopes");
+    expect(readme).toContain("separately authorized to create read/write API keys");
+    expect(readme).toContain("`PUBLIC_API_FLOWS_ENABLED=false`");
+    expect(readme).toContain("P5 enforcement remains independently controlled");
+    expect(readme).toContain("For a Developers-only rollback, set `PUBLIC_API_DEVELOPERS_ENABLED=false` first");
+    expect(readme).toContain("For an OAuth-only rollback, set `PUBLIC_API_OAUTH_ENABLED=false`");
+    expect(readme).toContain("Revoke any affected API keys separately");
+    expect(readme).not.toContain("Production OAuth remains off");
+    expect(readme).not.toContain("Production OAuth must remain off");
+  });
 });
