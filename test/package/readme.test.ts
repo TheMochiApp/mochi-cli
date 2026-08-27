@@ -17,4 +17,18 @@ describe("README command examples", () => {
     expect(readme).not.toMatch(/(?:signals|bookings|connections) list --query limit=/u);
     expect(readme).not.toContain("mochi api get '/v1/leads/?limit=10'");
   });
+
+  test("requires the authoritative backend Developers gate before frontend activation", async () => {
+    const readme = await readFile(README_URL, "utf8");
+
+    expect(readme).toContain(
+      "the final reviewed merge result of [backend PR #1798](https://github.com/TheMochiApp/mochi-backend/pull/1798) is deployed",
+    );
+    expect(readme).toContain("`PUBLIC_API_DEVELOPERS_ENABLED=true`");
+    expect(readme).toContain("`PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS`");
+    expect(readme).toContain("`VITE_PUBLIC_API_DEVELOPERS_ENABLED_ORG_IDS`");
+    expect(readme).toContain("Backend authorization is authoritative; frontend visibility is not authorization.");
+    expect(readme).toContain("The Developers and OAuth cohorts are independent");
+    expect(readme).toContain("Both backend organization cohorts and the frontend Developers cohort default empty");
+  });
 });

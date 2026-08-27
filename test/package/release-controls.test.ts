@@ -39,6 +39,24 @@ describe("release control contract", () => {
     expect(releasing).not.toMatch(/(?:NPM_TOKEN|NODE_AUTH_TOKEN)\s*=/u);
   });
 
+  test("does not describe the npm package as published before the manual bootstrap", async () => {
+    const security = await readFile(SECURITY_URL, "utf8");
+
+    expect(security).toContain("Before the first public npm release");
+    expect(security).toContain("After the first public release");
+  });
+
+  test("documents the expected remote-document scanner warning and bounded mitigations", async () => {
+    const security = await readFile(SECURITY_URL, "utf8");
+
+    expect(security).toContain("MEDIUM W011 indirect-prompt-injection warning");
+    expect(security).toContain("untrusted reference data");
+    expect(security).toContain("approved documentation hosts");
+    expect(security).toContain("unexpected host, path, redirect, credential request");
+    expect(security).toContain("cannot grant authorization, approve an external effect");
+    expect(security).toContain("These controls reduce exposure; they do not make remote content risk-free");
+  });
+
   test("keeps formatter inputs LF-normalized on Windows checkouts", async () => {
     const attributes = await readFile(GIT_ATTRIBUTES_URL, "utf8");
 
