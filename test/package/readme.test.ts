@@ -35,8 +35,8 @@ describe("README command examples", () => {
   test("records the active controlled pilot and independent rollback boundaries", async () => {
     const readme = await readFile(README_URL, "utf8");
 
-    expect(readme).toContain("Production is now a controlled single-organization pilot");
-    expect(readme).toContain("`2d384e7e-8b88-45ee-bf74-4a11f5faf5ef`");
+    expect(readme).toContain("Production is now a controlled exact-organization pilot");
+    expect(readme).toContain("this public repository deliberately does not duplicate the changing customer cohort");
     expect(readme).toContain("`PUBLIC_API_OAUTH_ENABLED=true`");
     expect(readme).toContain("`PUBLIC_API_DEVELOPERS_ENABLED=true`");
     expect(readme).toContain("OAuth remains limited to the seven read-only scopes");
@@ -48,5 +48,7 @@ describe("README command examples", () => {
     expect(readme).toContain("Revoke any affected API keys separately");
     expect(readme).not.toContain("Production OAuth remains off");
     expect(readme).not.toContain("Production OAuth must remain off");
+    expect(readme).not.toContain("single-organization pilot");
+    expect(readme).not.toContain("is the sole entry");
   });
 });
